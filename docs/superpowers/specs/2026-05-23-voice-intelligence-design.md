@@ -18,8 +18,10 @@ voice intelligence**. After a recording, the app:
   advantage for calls),
 - writes a structured Markdown note shaped per type.
 
-All LLM work runs through **OpenRouter**. Heavy analysis runs **locally by default**
-(privacy), with a **cloud provider** seam for later.
+LLM work runs through one **configurable OpenAI-compatible endpoint** — **OpenRouter**
+by default, or a **local** model (Ollama/LM Studio) for fully-offline use. Heavy
+analysis (diarization, emotion) runs **locally by default** (privacy), with a cloud
+provider seam for later.
 
 Built **post-call now**, with component seams that a future **live mode** can reuse.
 
@@ -82,12 +84,25 @@ Runs after transcription, orchestrated by the recording-type profile:
 Failures degrade gracefully: if diarization or emotion fails, the note is still
 produced from transcription + LLM with a warning; the job does not hard-fail.
 
-## 5. LLM via OpenRouter
+## 5. LLM via configurable OpenAI-compatible endpoint
 
-Replace the direct Anthropic SDK in post-processing with an **OpenAI-compatible
-client** pointed at `https://openrouter.ai/api/v1`. API key in Keychain. All LLM
-calls — note formatting, sentiment, insights — go through one `OpenRouterClient`
-wrapper with retry + JSON-mode parsing.
+Replace the direct Anthropic SDK in post-processing with one **OpenAI-compatible
+`LLMClient`** whose **base URL is configurable**. All LLM calls — note formatting,
+sentiment, insights — go through it (with retry + JSON-mode parsing). Two providers:
+
+- **`openrouter` (default):** base `https://openrouter.ai/api/v1`, key in Keychain.
+- **`local`:** base `http://localhost:11434/v1` (Ollama; also LM Studio), no real key
+  (placeholder). Enables **fully-offline** operation — combined with local whisper,
+  pyannote, and the SER model, nothing leaves the machine.
+
+The worker is provider-agnostic: it receives `LLM_BASE_URL`, `LLM_MODEL`, and
+`LLM_API_KEY` in its environment and calls that endpoint. The Swift host resolves
+these from the selected provider. If a cloud provider has no key (and the endpoint
+isn't local), the worker falls back to rule-based extraction.
+
+Local models (e.g. `qwen2.5:32b` on Apple Silicon) handle notes/sentiment well but
+trail Gemini/Claude on multilingual nuance and complex insights — an accepted
+trade-off for privacy.
 
 **Model selection (researched 2026):**
 - **Default `llm_model` = `google/gemini-2.5-flash`** (or `3.5-flash`). Chosen for
@@ -157,8 +172,10 @@ Swift `Session` and `SessionRecord` mirror them.
 - `enable_analysis` (default true)
 - `analysis_provider` = `local` | `assemblyai` | `deepgram` (default `local`;
   only `local` implemented in v1, others are seams)
+- `llm_provider` = `openrouter` | `local` (default `openrouter`)
 - `openrouter_api_key` (Keychain), `llm_model` (string, default
-  `google/gemini-2.5-flash`; `anthropic/claude-sonnet-4.6` offered as quality option)
+  `google/gemini-2.5-flash`; `anthropic/claude-sonnet-4.6` quality option; for local
+  set e.g. `qwen2.5:32b`), `local_llm_base_url` (default `http://localhost:11434/v1`)
 - `huggingface_token` (Keychain, for pyannote)
 - `default_recording_type`
 - Existing `enable_diarization` folds into per-type profile defaults.

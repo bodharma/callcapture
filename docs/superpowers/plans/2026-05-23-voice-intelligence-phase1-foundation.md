@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add recording types (Call/Meeting, Voice memo, Lecture) end-to-end and migrate all LLM post-processing to OpenRouter (default Gemini 2.5 Flash), so later phases can branch processing by type and call any model.
+**Goal:** Add recording types (Call/Meeting, Voice memo, Lecture) end-to-end and migrate all LLM post-processing to a **configurable OpenAI-compatible endpoint** — OpenRouter (default, Gemini 2.5 Flash) or a local Ollama model for fully-offline use — so later phases can branch processing by type and call any model.
 
-**Architecture:** A `RecordingType` is chosen in the menu popover, stored on the session (new DB columns), and sent to the Python worker in the `JobRequest`. The worker's Markdown generation calls OpenRouter via a small OpenAI-compatible client instead of the Anthropic SDK. The Swift host passes the OpenRouter key/model to the worker process environment.
+**Architecture:** A `RecordingType` is chosen in the menu popover, stored on the session (new DB columns), and sent to the Python worker in the `JobRequest`. The worker's Markdown generation calls one `LLMClient` (OpenAI-compatible) whose `base_url`/`model`/`key` come from `LLM_*` environment variables, replacing the Anthropic SDK. The Swift host resolves those env vars from the selected provider (OpenRouter cloud or local Ollama).
 
 **Tech Stack:** Swift 5.9 / SwiftUI / GRDB (macOS app); Python 3.11+ / Pydantic / `openai` SDK / pytest (worker). Reference spec: `docs/superpowers/specs/2026-05-23-voice-intelligence-design.md`.
 
@@ -16,23 +16,24 @@ This phase is foundation only. It does NOT add diarization, metrics, sentiment, 
 
 **Python worker (`python-worker/`):**
 - Modify `app/schemas/models.py` — add `recording_type` to `JobRequest`.
-- Create `app/postprocess/openrouter_client.py` — OpenAI-compatible chat client for OpenRouter.
-- Modify `app/postprocess/markdown.py` — call OpenRouter instead of Anthropic.
+- Create `app/postprocess/llm_client.py` — configurable OpenAI-compatible chat client (OpenRouter or local).
+- Modify `app/postprocess/markdown.py` — call the LLM client via `LLM_*` env instead of Anthropic.
 - Modify `pyproject.toml` — add `openai` dependency.
-- Create `tests/test_openrouter_client.py`, `tests/test_recording_type_schema.py`.
-- Modify `tests/test_schemas.py` if it asserts `JobRequest` fields.
+- Create `tests/test_llm_client.py`, `tests/test_markdown_llm.py`, `tests/test_recording_type_schema.py`.
 
 **macOS app (`macos-app/`):**
 - Create `Sources/Session/RecordingType.swift` — enum + per-type profile.
 - Modify `Sources/Persistence/Database.swift` — v2 migration (`recording_type`, `analysis_path`).
 - Modify `Sources/Persistence/SessionRecord.swift` — new columns + conversion.
 - Modify `Sources/Session/SessionManager.swift` — `Session.recordingType`/`analysisPath`; `createSession(sourceApp:recordingType:)`.
-- Modify `Sources/Settings/SettingsManager.swift` — `openRouterApiKey`, `llmModel`.
+- Modify `Sources/Settings/SettingsEnums.swift` — `LLMProvider` enum.
+- Modify `Sources/Settings/SettingsManager.swift` — `llmProvider`, `openRouterApiKey`, `llmModel`, `localLLMBaseURL`.
+- Modify `Sources/Settings/SettingsView.swift` — provider/model/key/local-URL controls.
 - Modify `Sources/Bridge/Models.swift` — `recordingType` in `JobRequest`.
-- Modify `Sources/Bridge/PythonBridge.swift` — pass `OPENROUTER_API_KEY` + `OPENROUTER_MODEL` to the worker env.
-- Modify `Sources/App/CallCaptureApp.swift` — `AppModel.selectedRecordingType`; thread into `createSession` + `JobRequest`.
+- Modify `Sources/Bridge/PythonBridge.swift` — pass `LLM_BASE_URL` + `LLM_MODEL` + `LLM_API_KEY` to the worker env.
+- Modify `Sources/App/CallCaptureApp.swift` — `AppModel.selectedRecordingType`; resolve LLM env by provider; thread type into `createSession` + `JobRequest`.
 - Modify `Sources/App/ContentView.swift` — recording-type picker in popover.
-- Modify `Package.swift` + create `Tests/CallCaptureTests/RecordingTypeTests.swift` — add a test target for pure-logic Swift tests.
+- Modify `Package.swift` + create `Tests/CallCaptureTests/RecordingTypeTests.swift`, `Tests/CallCaptureTests/DatabaseMigrationTests.swift` — add a test target for pure-logic Swift tests.
 
 ---
 
@@ -93,16 +94,20 @@ git commit -m "feat(worker): add recording_type to JobRequest schema"
 
 ---
 
-## Task 2: OpenRouter client
+## Task 2: Configurable LLM client (OpenRouter or local Ollama)
 
 **Files:**
-- Create: `python-worker/app/postprocess/openrouter_client.py`
-- Test: `python-worker/tests/test_openrouter_client.py`
+- Create: `python-worker/app/postprocess/llm_client.py`
+- Test: `python-worker/tests/test_llm_client.py`
 - Modify: `python-worker/pyproject.toml`
+
+The client is provider-agnostic: it takes a `base_url`, so it works against
+OpenRouter (`https://openrouter.ai/api/v1`) or a local Ollama/LM Studio endpoint
+(`http://localhost:11434/v1`).
 
 - [ ] **Step 1: Add the `openai` dependency**
 
-In `python-worker/pyproject.toml`, in `dependencies`, add `"openai"` (the OpenAI SDK is OpenRouter-compatible). Result:
+In `python-worker/pyproject.toml`, in `dependencies`, add `"openai"` (the OpenAI SDK speaks to both OpenRouter and Ollama). Result:
 
 ```toml
 dependencies = [
@@ -118,12 +123,12 @@ Then install: `cd python-worker && ./.venv/bin/pip install -e .`
 
 - [ ] **Step 2: Write the failing test**
 
-Create `python-worker/tests/test_openrouter_client.py`:
+Create `python-worker/tests/test_llm_client.py`:
 
 ```python
 from unittest.mock import MagicMock, patch
 
-from app.postprocess.openrouter_client import OpenRouterClient, OpenRouterError
+from app.postprocess.llm_client import LLMClient, LLMError, OPENROUTER_BASE_URL
 
 
 def _fake_completion(content: str):
@@ -135,7 +140,7 @@ def _fake_completion(content: str):
 
 
 def test_complete_json_returns_parsed_dict():
-    client = OpenRouterClient(api_key="k", model="google/gemini-2.5-flash")
+    client = LLMClient(api_key="k", model="google/gemini-2.5-flash")
     with patch.object(client._client.chat.completions, "create",
                       return_value=_fake_completion('{"a": 1}')):
         result = client.complete_json(system="sys", user="usr")
@@ -143,7 +148,7 @@ def test_complete_json_returns_parsed_dict():
 
 
 def test_complete_json_strips_code_fences():
-    client = OpenRouterClient(api_key="k", model="m")
+    client = LLMClient(api_key="k", model="m")
     fenced = "```json\n{\"b\": 2}\n```"
     with patch.object(client._client.chat.completions, "create",
                       return_value=_fake_completion(fenced)):
@@ -151,23 +156,37 @@ def test_complete_json_strips_code_fences():
     assert result == {"b": 2}
 
 
-def test_missing_api_key_raises():
+def test_defaults_to_openrouter_base_url():
+    client = LLMClient(api_key="k", model="m")
+    assert str(client._client.base_url).rstrip("/") == OPENROUTER_BASE_URL
+
+
+def test_local_base_url_is_honored():
+    client = LLMClient(api_key="ollama", model="qwen2.5:32b",
+                       base_url="http://localhost:11434/v1")
+    assert "11434" in str(client._client.base_url)
+
+
+def test_invalid_json_raises():
     import pytest
-    with pytest.raises(OpenRouterError):
-        OpenRouterClient(api_key="", model="m")
+    client = LLMClient(api_key="k", model="m")
+    with patch.object(client._client.chat.completions, "create",
+                      return_value=_fake_completion("not json")):
+        with pytest.raises(LLMError):
+            client.complete_json(system="s", user="u")
 ```
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `cd python-worker && ./.venv/bin/python -m pytest tests/test_openrouter_client.py -v`
-Expected: FAIL — module `openrouter_client` does not exist.
+Run: `cd python-worker && ./.venv/bin/python -m pytest tests/test_llm_client.py -v`
+Expected: FAIL — module `llm_client` does not exist.
 
 - [ ] **Step 4: Implement the client**
 
-Create `python-worker/app/postprocess/openrouter_client.py`:
+Create `python-worker/app/postprocess/llm_client.py`:
 
 ```python
-"""Thin OpenAI-compatible client for the OpenRouter API."""
+"""OpenAI-compatible chat client. Works with OpenRouter or a local endpoint."""
 
 from __future__ import annotations
 
@@ -179,23 +198,25 @@ from openai import OpenAI
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
-class OpenRouterError(Exception):
-    """Raised when OpenRouter is misconfigured or returns an unusable response."""
+class LLMError(Exception):
+    """Raised when the LLM endpoint is misconfigured or returns bad output."""
 
 
-class OpenRouterClient:
-    """Calls chat-completion models hosted by OpenRouter.
+class LLMClient:
+    """Calls chat-completion models via any OpenAI-compatible endpoint.
 
     Args:
-        api_key: OpenRouter API key.
-        model: Model slug, e.g. ``google/gemini-2.5-flash``.
+        api_key: API key (use a placeholder like ``"ollama"`` for local servers).
+        model: Model id, e.g. ``google/gemini-2.5-flash`` or ``qwen2.5:32b``.
+        base_url: Endpoint base URL. Defaults to OpenRouter.
     """
 
-    def __init__(self, api_key: str, model: str) -> None:
-        if not api_key:
-            raise OpenRouterError("OpenRouter API key is missing")
+    def __init__(
+        self, api_key: str, model: str, base_url: str = OPENROUTER_BASE_URL
+    ) -> None:
         self.model = model
-        self._client = OpenAI(api_key=api_key, base_url=OPENROUTER_BASE_URL)
+        # OpenAI SDK requires a non-empty key string; local servers ignore it.
+        self._client = OpenAI(api_key=api_key or "none", base_url=base_url)
 
     def complete_json(
         self, system: str, user: str, max_tokens: int = 2048
@@ -203,7 +224,7 @@ class OpenRouterClient:
         """Send a system+user prompt and parse the reply as JSON.
 
         Raises:
-            OpenRouterError: on API failure or unparseable JSON.
+            LLMError: on API failure or unparseable JSON.
         """
         try:
             resp = self._client.chat.completions.create(
@@ -216,7 +237,7 @@ class OpenRouterClient:
             )
             raw = resp.choices[0].message.content or ""
         except Exception as exc:  # noqa: BLE001 - surface as our error type
-            raise OpenRouterError(f"OpenRouter request failed: {exc}") from exc
+            raise LLMError(f"LLM request failed: {exc}") from exc
 
         return self._parse_json(raw)
 
@@ -229,35 +250,40 @@ class OpenRouterClient:
         try:
             data = json.loads(cleaned)
         except json.JSONDecodeError as exc:
-            raise OpenRouterError(f"Invalid JSON from model: {exc}") from exc
+            raise LLMError(f"Invalid JSON from model: {exc}") from exc
         if not isinstance(data, dict):
-            raise OpenRouterError("Model JSON was not an object")
+            raise LLMError("Model JSON was not an object")
         return data
 ```
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `cd python-worker && ./.venv/bin/python -m pytest tests/test_openrouter_client.py -v`
-Expected: PASS (3 tests).
+Run: `cd python-worker && ./.venv/bin/python -m pytest tests/test_llm_client.py -v`
+Expected: PASS (5 tests).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add python-worker/app/postprocess/openrouter_client.py python-worker/tests/test_openrouter_client.py python-worker/pyproject.toml
-git commit -m "feat(worker): add OpenRouter chat client"
+git add python-worker/app/postprocess/llm_client.py python-worker/tests/test_llm_client.py python-worker/pyproject.toml
+git commit -m "feat(worker): add configurable OpenAI-compatible LLM client"
 ```
 
 ---
 
-## Task 3: Route markdown generation through OpenRouter
+## Task 3: Route markdown generation through the LLM client
 
 **Files:**
 - Modify: `python-worker/app/postprocess/markdown.py`
-- Test: `python-worker/tests/test_markdown_openrouter.py`
+- Test: `python-worker/tests/test_markdown_llm.py`
+
+The worker reads three env vars (set by the Swift host): `LLM_BASE_URL`,
+`LLM_MODEL`, `LLM_API_KEY`. It calls the endpoint when usable; otherwise falls
+back. "Usable" = a model is set AND (a key is present OR the endpoint is local,
+i.e. not the OpenRouter host).
 
 - [ ] **Step 1: Write the failing test**
 
-Create `python-worker/tests/test_markdown_openrouter.py`:
+Create `python-worker/tests/test_markdown_llm.py`:
 
 ```python
 from unittest.mock import MagicMock, patch
@@ -270,38 +296,54 @@ def _segments():
     return [TranscriptSegment(start=0.0, end=2.0, text="Hello there", speaker=None)]
 
 
-def test_uses_openrouter_when_key_present(monkeypatch):
-    monkeypatch.setenv("OPENROUTER_API_KEY", "key")
-    monkeypatch.setenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+def test_uses_llm_when_cloud_key_present(monkeypatch):
+    monkeypatch.setenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("LLM_MODEL", "google/gemini-2.5-flash")
+    monkeypatch.setenv("LLM_API_KEY", "key")
     fake = MagicMock()
     fake.complete_json.return_value = {
         "title": "T", "summary": "S", "key_points": ["k"],
         "decisions": [], "action_items": [],
     }
-    with patch("app.postprocess.markdown.OpenRouterClient", return_value=fake):
+    with patch("app.postprocess.markdown.LLMClient", return_value=fake):
         note = generate_markdown(_segments())
     assert note.title == "T"
-    assert note.summary == "S"
     fake.complete_json.assert_called_once()
 
 
-def test_falls_back_when_no_key(monkeypatch):
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+def test_uses_llm_for_local_without_key(monkeypatch):
+    monkeypatch.setenv("LLM_BASE_URL", "http://localhost:11434/v1")
+    monkeypatch.setenv("LLM_MODEL", "qwen2.5:32b")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    fake = MagicMock()
+    fake.complete_json.return_value = {
+        "title": "L", "summary": "S", "key_points": [],
+        "decisions": [], "action_items": [],
+    }
+    with patch("app.postprocess.markdown.LLMClient", return_value=fake):
+        note = generate_markdown(_segments())
+    assert note.title == "L"
+
+
+def test_falls_back_when_cloud_and_no_key(monkeypatch):
+    monkeypatch.setenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
     note = generate_markdown(_segments())
     assert note.title  # fallback still produces a note
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd python-worker && ./.venv/bin/python -m pytest tests/test_markdown_openrouter.py -v`
-Expected: FAIL — `markdown` module does not import `OpenRouterClient`.
+Run: `cd python-worker && ./.venv/bin/python -m pytest tests/test_markdown_llm.py -v`
+Expected: FAIL — `markdown` module does not import `LLMClient`.
 
 - [ ] **Step 3: Rewrite the LLM path in `markdown.py`**
 
-In `python-worker/app/postprocess/markdown.py`, replace the import block and the `generate_markdown` function body. Replace the top import:
+In `python-worker/app/postprocess/markdown.py`, replace the top import line
+`from app.schemas.models import MarkdownNote, TranscriptSegment` with:
 
 ```python
-from app.postprocess.openrouter_client import OpenRouterClient, OpenRouterError
+from app.postprocess.llm_client import LLMClient, LLMError, OPENROUTER_BASE_URL
 from app.schemas.models import MarkdownNote, TranscriptSegment
 ```
 
@@ -311,27 +353,31 @@ Replace the entire `generate_markdown` function with:
 def generate_markdown(
     segments: list[TranscriptSegment],
     profile: str = "meeting_notes",
-    llm_engine: str = "openrouter",
+    llm_engine: str = "llm",
 ) -> MarkdownNote:
-    """Generate a structured MarkdownNote from transcript segments via OpenRouter.
+    """Generate a structured MarkdownNote from transcript segments via the LLM.
 
-    Falls back to rule-based extraction when no API key is configured or the
-    model call fails.
+    Uses the OpenAI-compatible endpoint described by the LLM_* env vars
+    (OpenRouter or a local server). Falls back to rule-based extraction when the
+    endpoint is unusable or the call fails.
 
     Args:
         segments: Transcript segments.
         profile: Markdown profile (used during rendering).
-        llm_engine: Retained for compatibility; OpenRouter is always used.
+        llm_engine: Retained for compatibility.
     """
-    api_key = os.environ.get("OPENROUTER_API_KEY", "")
-    model = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.5-flash")
-    if not api_key:
-        sys.stderr.write('{"warning": "OPENROUTER_API_KEY not set, using fallback"}\n')
+    base_url = os.environ.get("LLM_BASE_URL", OPENROUTER_BASE_URL)
+    model = os.environ.get("LLM_MODEL", "google/gemini-2.5-flash")
+    api_key = os.environ.get("LLM_API_KEY", "")
+    is_local = "openrouter.ai" not in base_url
+
+    if not api_key and not is_local:
+        sys.stderr.write('{"warning": "no LLM_API_KEY for cloud endpoint, using fallback"}\n')
         sys.stderr.flush()
         return _fallback_extraction(segments)
 
     try:
-        client = OpenRouterClient(api_key=api_key, model=model)
+        client = LLMClient(api_key=api_key, model=model, base_url=base_url)
         transcript_text = _transcript_to_text(segments)
         data = client.complete_json(
             system=_SYSTEM_PROMPT,
@@ -345,9 +391,9 @@ def generate_markdown(
             action_items=data.get("action_items", []),
             transcript_segments=list(segments),
         )
-    except OpenRouterError as exc:
+    except LLMError as exc:
         sys.stderr.write(
-            json.dumps({"warning": f"OpenRouter failed: {exc}, using fallback"}) + "\n"
+            json.dumps({"warning": f"LLM failed: {exc}, using fallback"}) + "\n"
         )
         sys.stderr.flush()
         return _fallback_extraction(segments)
@@ -357,8 +403,8 @@ The existing `_parse_llm_response` helper is now unused — delete it.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd python-worker && ./.venv/bin/python -m pytest tests/test_markdown_openrouter.py -v`
-Expected: PASS (2 tests).
+Run: `cd python-worker && ./.venv/bin/python -m pytest tests/test_markdown_llm.py -v`
+Expected: PASS (3 tests).
 
 - [ ] **Step 5: Run the full worker test suite**
 
@@ -368,8 +414,8 @@ Expected: all tests pass (existing + new).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add python-worker/app/postprocess/markdown.py python-worker/tests/test_markdown_openrouter.py
-git commit -m "feat(worker): generate markdown via OpenRouter with fallback"
+git add python-worker/app/postprocess/markdown.py python-worker/tests/test_markdown_llm.py
+git commit -m "feat(worker): generate markdown via configurable LLM endpoint with fallback"
 ```
 
 ---
@@ -635,16 +681,38 @@ git commit -m "feat(app): carry recording_type and analysis_path on sessions"
 
 ---
 
-## Task 7: Settings — OpenRouter key + model
+## Task 7: Settings — LLM provider, key, model, local URL
 
 **Files:**
+- Modify: `macos-app/Sources/Settings/SettingsEnums.swift`
 - Modify: `macos-app/Sources/Settings/SettingsManager.swift`
 
-- [ ] **Step 1: Add settings properties**
+- [ ] **Step 1: Add the provider enum**
+
+In `macos-app/Sources/Settings/SettingsEnums.swift`, add:
+
+```swift
+/// Where LLM post-processing runs.
+enum LLMProvider: String, Codable, CaseIterable, Sendable {
+    case openrouter
+    case local
+
+    var displayName: String {
+        switch self {
+        case .openrouter: "OpenRouter (cloud)"
+        case .local: "Local (Ollama)"
+        }
+    }
+}
+```
+
+- [ ] **Step 2: Add settings properties**
 
 In `macos-app/Sources/Settings/SettingsManager.swift`, after the `llmApiKey` block, add:
 
 ```swift
+    var llmProvider: LLMProvider = .openrouter { didSet { persist("llm_provider", llmProvider.rawValue) } }
+
     var openRouterApiKey: String = "" {
         didSet {
             KeychainHelper.save(openRouterApiKey, for: "openrouter_api_key")
@@ -655,14 +723,20 @@ In `macos-app/Sources/Settings/SettingsManager.swift`, after the `llmApiKey` blo
     var llmModel: String = "google/gemini-2.5-flash" {
         didSet { persist("llm_model", llmModel) }
     }
+
+    var localLLMBaseURL: String = "http://localhost:11434/v1" {
+        didSet { persist("local_llm_base_url", localLLMBaseURL) }
+    }
 ```
 
-- [ ] **Step 2: Load them in `loadAll()`**
+- [ ] **Step 3: Load them in `loadAll()`**
 
 In `loadAll()`, after the `markdown_profile` line, add:
 
 ```swift
+        if let raw = rows["llm_provider"], let val = LLMProvider(rawValue: raw) { llmProvider = val }
         if let raw = rows["llm_model"], !raw.isEmpty { llmModel = raw }
+        if let raw = rows["local_llm_base_url"], !raw.isEmpty { localLLMBaseURL = raw }
 ```
 
 and after the existing keychain loads, add:
@@ -671,16 +745,16 @@ and after the existing keychain loads, add:
         openRouterApiKey = KeychainHelper.load(for: "openrouter_api_key")
 ```
 
-- [ ] **Step 3: Verify it builds**
+- [ ] **Step 4: Verify it builds**
 
 Run: `cd macos-app && swift build`
 Expected: `Build complete!`
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add macos-app/Sources/Settings/SettingsManager.swift
-git commit -m "feat(app): add OpenRouter API key and model settings"
+git add macos-app/Sources/Settings/SettingsEnums.swift macos-app/Sources/Settings/SettingsManager.swift
+git commit -m "feat(app): add LLM provider, key, model, and local URL settings"
 ```
 
 ---
@@ -739,9 +813,20 @@ In `executeWorker(request:)`, after `let process = Process()` and before `try pr
 In `macos-app/Sources/App/CallCaptureApp.swift`, in `transcribeSession(_:)`, immediately before `let result = try await pythonBridge.runJob(request: request)`, add:
 
 ```swift
+        let llmBaseURL: String
+        let llmKey: String
+        switch settingsManager.llmProvider {
+        case .openrouter:
+            llmBaseURL = "https://openrouter.ai/api/v1"
+            llmKey = settingsManager.openRouterApiKey
+        case .local:
+            llmBaseURL = settingsManager.localLLMBaseURL
+            llmKey = "ollama" // placeholder; local servers ignore it
+        }
         pythonBridge.llmEnvironment = [
-            "OPENROUTER_API_KEY": settingsManager.openRouterApiKey,
-            "OPENROUTER_MODEL": settingsManager.llmModel,
+            "LLM_BASE_URL": llmBaseURL,
+            "LLM_MODEL": settingsManager.llmModel,
+            "LLM_API_KEY": llmKey,
         ]
 ```
 
@@ -812,20 +897,86 @@ git commit -m "feat(app): recording-type picker in the menu popover"
 
 ---
 
-## Task 11: End-to-end verification
+## Task 11: Settings UI for the LLM provider
+
+**Files:**
+- Modify: `macos-app/Sources/Settings/SettingsView.swift`
+
+Surface the new provider/key/model/local-URL controls and retire the legacy
+`llmEngine` picker from the UI (the field stays in `SettingsManager` for now but is
+no longer user-facing).
+
+- [ ] **Step 1: Replace the post-processing LLM picker**
+
+In `macos-app/Sources/Settings/SettingsView.swift`, in `postProcessingSection`,
+replace the `Picker("LLM Engine", …)` block with:
+
+```swift
+            Picker("LLM Provider", selection: $settings.llmProvider) {
+                ForEach(LLMProvider.allCases, id: \.self) { provider in
+                    Text(provider.displayName).tag(provider)
+                }
+            }
+
+            TextField("Model", text: $settings.llmModel)
+                .textFieldStyle(.roundedBorder)
+
+            if settings.llmProvider == .local {
+                TextField("Local LLM Base URL", text: $settings.localLLMBaseURL)
+                    .textFieldStyle(.roundedBorder)
+                Text("Run a model in Ollama, e.g. `ollama run qwen2.5:32b`, then set Model to its id.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+```
+
+- [ ] **Step 2: Add the OpenRouter key field**
+
+In `apiKeysSection`, add at the top of the `Section("API Keys")` body:
+
+```swift
+            if settings.llmProvider == .openrouter {
+                SecureField("OpenRouter API Key", text: $settings.openRouterApiKey)
+            }
+```
+
+- [ ] **Step 3: Verify it builds**
+
+Run: `cd macos-app && swift build`
+Expected: `Build complete!`
+
+- [ ] **Step 4: Manual verification**
+
+Run `./run-dev.sh`, open Settings → Post-Processing. Confirm: LLM Provider picker
+(OpenRouter / Local), a Model field defaulting to `google/gemini-2.5-flash`, an
+OpenRouter API Key field when OpenRouter is selected, and a Local LLM Base URL field
+when Local is selected.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add macos-app/Sources/Settings/SettingsView.swift
+git commit -m "feat(app): settings UI for LLM provider, model, key, local URL"
+```
+
+---
+
+## Task 12: End-to-end verification
 
 - [ ] **Step 1: Build the worker + app**
 
 Run: `cd python-worker && ./.venv/bin/python -m pytest -q` → all pass.
 Run: `cd macos-app && swift build && swift test` → build + tests pass.
 
-- [ ] **Step 2: Set the OpenRouter key**
+- [ ] **Step 2: Configure the LLM provider**
 
-Launch via `./run-dev.sh`, open Settings, paste the OpenRouter API key, confirm `llm_model` shows `google/gemini-2.5-flash`.
+Launch via `./run-dev.sh`, open Settings → Post-Processing.
+- **Cloud:** Provider = OpenRouter, paste the OpenRouter API key, Model = `google/gemini-2.5-flash`.
+- **Local (offline):** install Ollama and run `ollama run qwen2.5:32b` (or any model), set Provider = Local, Model = `qwen2.5:32b`, Base URL = `http://localhost:11434/v1`.
 
 - [ ] **Step 3: Record + transcribe**
 
-Pick a recording type, record ~10s with audio, stop. After transcription completes, open the session in Session Detail and confirm the Markdown note rendered (now produced via OpenRouter). Check the OSLog stream (`scripts/debug-logstream.sh`) shows no `OPENROUTER_API_KEY not set` warning.
+Pick a recording type, record ~10s with audio, stop. After transcription completes, open the session in Session Detail and confirm the Markdown note rendered (via the chosen provider). Check the OSLog stream (`scripts/debug-logstream.sh`) shows no `no LLM_API_KEY for cloud endpoint` warning. For the local provider, confirm with Wi-Fi off that a note is still produced (fully offline once whisper + the local model are downloaded).
 
 - [ ] **Step 4: Confirm persistence**
 
