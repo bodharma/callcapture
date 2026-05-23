@@ -13,6 +13,8 @@ struct Session: Codable, Identifiable, Sendable {
     var audioPath: String
     var transcriptRawPath: String? = nil
     var transcriptMarkdownPath: String? = nil
+    var recordingType: String = "call_meeting"
+    var analysisPath: String? = nil
     var status: String
 
     /// URL for the session's audio file.
@@ -30,6 +32,8 @@ struct Session: Codable, Identifiable, Sendable {
         case audioPath = "audio_path"
         case transcriptRawPath = "transcript_raw_path"
         case transcriptMarkdownPath = "transcript_markdown_path"
+        case recordingType = "recording_type"
+        case analysisPath = "analysis_path"
         case status
     }
 }
@@ -95,7 +99,10 @@ final class SessionManager {
     /// - Parameter sourceApp: Name of the application being recorded.
     /// - Returns: The newly created session.
     @discardableResult
-    func createSession(sourceApp: String) -> Session {
+    func createSession(
+        sourceApp: String,
+        recordingType: RecordingType = .callMeeting
+    ) -> Session {
         let sessionId = UUID().uuidString
         let now = Date()
         let formatter = DateFormatter()
@@ -113,6 +120,7 @@ final class SessionManager {
             sourceApp: sourceApp,
             startedAt: now,
             audioPath: audioPath.path,
+            recordingType: recordingType.rawValue,
             status: "recording"
         )
 
@@ -146,6 +154,8 @@ final class SessionManager {
             endedAt: now,
             durationSec: now.timeIntervalSince(session.startedAt),
             audioPath: session.audioPath,
+            recordingType: session.recordingType,
+            analysisPath: session.analysisPath,
             status: "completed"
         )
 
@@ -260,6 +270,8 @@ final class SessionManager {
                     endedAt: existing.endedAt,
                     durationSec: existing.durationSec,
                     audioPath: existing.audioPath,
+                    recordingType: existing.recordingType,
+                    analysisPath: existing.analysisPath,
                     status: status
                 )
             }

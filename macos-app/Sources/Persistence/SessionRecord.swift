@@ -17,6 +17,8 @@ struct SessionRecord: Codable, FetchableRecord, PersistableRecord, Identifiable 
     var endedAt: String?
     var durationSec: Double?
     let audioPath: String
+    var recordingType: String
+    var analysisPath: String?
     var transcriptRawPath: String?
     var transcriptMarkdownPath: String?
     var engineUsed: String?
@@ -32,6 +34,8 @@ struct SessionRecord: Codable, FetchableRecord, PersistableRecord, Identifiable 
         case endedAt = "ended_at"
         case durationSec = "duration_sec"
         case audioPath = "audio_path"
+        case recordingType = "recording_type"
+        case analysisPath = "analysis_path"
         case transcriptRawPath = "transcript_raw_path"
         case transcriptMarkdownPath = "transcript_markdown_path"
         case engineUsed = "engine_used"
@@ -71,6 +75,8 @@ extension SessionRecord {
             audioPath: audioPath,
             transcriptRawPath: transcriptRawPath,
             transcriptMarkdownPath: transcriptMarkdownPath,
+            recordingType: recordingType,
+            analysisPath: analysisPath,
             status: status
         )
     }
@@ -86,6 +92,8 @@ extension SessionRecord {
         self.endedAt = session.endedAt.map { formatter.string(from: $0) }
         self.durationSec = session.durationSec
         self.audioPath = session.audioPath
+        self.recordingType = session.recordingType
+        self.analysisPath = session.analysisPath
         self.transcriptRawPath = session.transcriptRawPath
         self.transcriptMarkdownPath = session.transcriptMarkdownPath
         self.engineUsed = nil
