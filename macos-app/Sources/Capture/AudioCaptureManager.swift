@@ -32,6 +32,13 @@ final class AudioCaptureManager {
     private var targetFormat: AVAudioFormat?
     /// Converts mix-format buffers to the target format.
     private var converter: AVAudioConverter?
+    /// Separate-stem writers, created only when a mic is selected.
+    private var micWriter: AudioFileWriter?
+    private var systemWriter: AudioFileWriter?
+    private var micConverter: AVAudioConverter?
+    private var systemConverter: AVAudioConverter?
+    /// Channel count of the system tap, used to split the IO buffer list.
+    private var systemTapChannels: Int = 0
     /// Counts buffers delivered by the IO proc, for first-buffer diagnostics.
     private var bufferCount = 0
 
@@ -154,6 +161,25 @@ final class AudioCaptureManager {
         self.fileWriter = writer
         self.bufferCount = 0
 
+        // Record the tap channel count so the IO proc can split mic vs system.
+        self.systemTapChannels = Self.tapChannelCount(tapID: self.tapID)
+
+        // When a mic is mixed in, also write separate mic/system stems for
+        // later diarization. Named alongside the mixed file.
+        if micDeviceUID != nil {
+            let dir = outputPath.deletingLastPathComponent()
+            let stem = outputPath.deletingPathExtension().lastPathComponent  // "<id>"
+            let micURL = dir.appendingPathComponent("\(stem)_mic.wav")
+            let systemURL = dir.appendingPathComponent("\(stem)_system.wav")
+            // Both filenames end in `.wav` so AVAudioFile writes RIFF/WAV (a
+            // non-`.wav` extension would silently produce CAF).
+            self.micWriter = try AudioFileWriter(outputPath: micURL, format: outputFormat)
+            self.systemWriter = try AudioFileWriter(outputPath: systemURL, format: outputFormat)
+            self.micConverter = AVAudioConverter(from: mixFormat, to: outputFormat)
+            self.systemConverter = AVAudioConverter(from: mixFormat, to: outputFormat)
+            Self.logger.info("startCapture: writing mic+system stems (tapCh=\(self.systemTapChannels))")
+        }
+
         // Install an IO proc on the aggregate device. Unlike
         // AVAudioEngine.installTap (which does not reliably pull audio from a
         // process-tap aggregate device), an IO proc receives the tapped audio
@@ -178,6 +204,12 @@ final class AudioCaptureManager {
             Self.logger.error("startCapture: AudioDeviceCreateIOProcID failed: \(createStatus)")
             self.converter = nil
             self.fileWriter = nil
+            try? self.micWriter?.finalize()
+            try? self.systemWriter?.finalize()
+            self.micWriter = nil
+            self.systemWriter = nil
+            self.micConverter = nil
+            self.systemConverter = nil
             destroyAggregateDevice()
             destroyTap()
             throw CaptureError.tapCreationFailed(status: createStatus)
@@ -192,6 +224,12 @@ final class AudioCaptureManager {
             self.ioProcID = nil
             self.converter = nil
             self.fileWriter = nil
+            try? self.micWriter?.finalize()
+            try? self.systemWriter?.finalize()
+            self.micWriter = nil
+            self.systemWriter = nil
+            self.micConverter = nil
+            self.systemConverter = nil
             destroyAggregateDevice()
             destroyTap()
             throw CaptureError.tapCreationFailed(status: startStatus)
@@ -210,12 +248,19 @@ final class AudioCaptureManager {
 
         stopIOProc()
 
+        try? micWriter?.finalize()
+        try? systemWriter?.finalize()
+
         do {
             try fileWriter?.finalize()
         } catch {
             Self.logger.error("File finalization failed: \(error)")
             fileWriter = nil
             converter = nil
+            micWriter = nil
+            systemWriter = nil
+            micConverter = nil
+            systemConverter = nil
             destroyAggregateDevice()
             destroyTap()
             isRecording = false
@@ -224,6 +269,10 @@ final class AudioCaptureManager {
 
         fileWriter = nil
         converter = nil
+        micWriter = nil
+        systemWriter = nil
+        micConverter = nil
+        systemConverter = nil
         destroyAggregateDevice()
         destroyTap()
         isRecording = false
@@ -244,8 +293,14 @@ final class AudioCaptureManager {
         stopIOProc()
 
         try? fileWriter?.finalize()
+        try? micWriter?.finalize()
+        try? systemWriter?.finalize()
         fileWriter = nil
         converter = nil
+        micWriter = nil
+        systemWriter = nil
+        micConverter = nil
+        systemConverter = nil
 
         destroyAggregateDevice()
         destroyTap()
@@ -260,6 +315,66 @@ final class AudioCaptureManager {
         AudioDeviceStop(aggregateDeviceID, procID)
         AudioDeviceDestroyIOProcID(aggregateDeviceID, procID)
         ioProcID = nil
+    }
+
+    /// Index into a buffer list at which the system (tap) buffers begin.
+    ///
+    /// The aggregate device lists mic sub-device buffers first, then tap
+    /// buffers. The trailing buffers whose channels sum to `systemChannels`
+    /// are the system stem; everything before them is the mic stem.
+    ///
+    /// - Returns: The split index (system buffers are `index..<count`). Returns
+    ///   `0` (treat everything as system) if no clean split sums to
+    ///   `systemChannels`, which is the safe default for the no-mic case.
+    static func systemBufferSplit(channelCounts: [Int], systemChannels: Int) -> Int {
+        var trailing = 0
+        var index = channelCounts.count
+        while index > 0 {
+            trailing += channelCounts[index - 1]
+            index -= 1
+            if trailing == systemChannels { return index }
+            if trailing > systemChannels { break }
+        }
+        return 0
+    }
+
+    /// Sums the given buffer-index range of an aggregate buffer list into a
+    /// freshly allocated mono buffer (channel-averaged per stream, then averaged
+    /// across streams). Returns nil if the range is empty or invalid.
+    private func downmix(
+        _ abl: UnsafeMutableAudioBufferListPointer,
+        indices: Range<Int>,
+        frameCount: Int,
+        format: AVAudioFormat
+    ) -> AVAudioPCMBuffer? {
+        guard !indices.isEmpty, frameCount > 0 else { return nil }
+        guard let out = AVAudioPCMBuffer(
+            pcmFormat: format,
+            frameCapacity: AVAudioFrameCount(frameCount)
+        ), let dst = out.floatChannelData?[0] else { return nil }
+        out.frameLength = AVAudioFrameCount(frameCount)
+        for i in 0..<frameCount { dst[i] = 0 }
+
+        var streams = 0
+        for bufferIndex in indices {
+            let buffer = abl[bufferIndex]
+            let channels = Int(buffer.mNumberChannels)
+            guard channels > 0, let raw = buffer.mData else { continue }
+            let src = raw.assumingMemoryBound(to: Float.self)
+            let bufFrames = Int(buffer.mDataByteSize) / (MemoryLayout<Float>.size * channels)
+            let n = min(bufFrames, frameCount)
+            for f in 0..<n {
+                var sum: Float = 0
+                for c in 0..<channels { sum += src[f * channels + c] }
+                dst[f] += sum / Float(channels)
+            }
+            streams += 1
+        }
+        if streams > 1 {
+            let scale = 1.0 / Float(streams)
+            for i in 0..<frameCount { dst[i] *= scale }
+        }
+        return out
     }
 
     /// Handles one IO callback. The aggregate may deliver several separate
@@ -280,57 +395,41 @@ final class AudioCaptureManager {
         )
         guard abl.count > 0 else { return noErr }
 
-        // Frame count from the first buffer (all streams share the master clock).
         let first = abl[0]
         let firstChannels = Int(first.mNumberChannels)
         guard firstChannels > 0, first.mDataByteSize > 0 else { return noErr }
-        let frameCount = Int(first.mDataByteSize)
-            / (MemoryLayout<Float>.size * firstChannels)
+        let frameCount = Int(first.mDataByteSize) / (MemoryLayout<Float>.size * firstChannels)
         guard frameCount > 0 else { return noErr }
 
         bufferCount += 1
         if bufferCount == 1 {
             let shapes = abl.map { "\($0.mNumberChannels)ch/\($0.mDataByteSize)B" }
                 .joined(separator: ", ")
-            Self.logger.info("IO buffers: count=\(abl.count) [\(shapes)] frames=\(frameCount)")
+            Self.logger.info("IO buffers: count=\(abl.count) [\(shapes)] frames=\(frameCount) tapCh=\(self.systemTapChannels)")
         }
 
-        guard let mono = AVAudioPCMBuffer(
-            pcmFormat: mixFormat,
-            frameCapacity: AVAudioFrameCount(frameCount)
-        ), let dst = mono.floatChannelData?[0] else { return noErr }
-        mono.frameLength = AVAudioFrameCount(frameCount)
+        // Full mix (all buffers) -> main writer (unchanged behavior).
+        if let mix = downmix(abl, indices: 0..<abl.count, frameCount: frameCount, format: mixFormat) {
+            handleAudioBuffer(mix, converter: converter, outputFormat: targetFormat, writer: writer)
+        }
 
-        for i in 0..<frameCount { dst[i] = 0 }
-
-        // Sum each stream's per-frame channel average into the mono mix.
-        var streams = 0
-        for buffer in abl {
-            let channels = Int(buffer.mNumberChannels)
-            guard channels > 0, let raw = buffer.mData else { continue }
-            let src = raw.assumingMemoryBound(to: Float.self)
-            let bufFrames = Int(buffer.mDataByteSize)
-                / (MemoryLayout<Float>.size * channels)
-            let n = min(bufFrames, frameCount)
-            for f in 0..<n {
-                var sum: Float = 0
-                for c in 0..<channels { sum += src[f * channels + c] }
-                dst[f] += sum / Float(channels)
+        // Separate stems (only when mic writers were created).
+        if let micWriter, let systemWriter,
+           let micConverter, let systemConverter {
+            let channelCounts = abl.map { Int($0.mNumberChannels) }
+            let split = Self.systemBufferSplit(
+                channelCounts: channelCounts, systemChannels: systemTapChannels
+            )
+            if split == 0 && bufferCount == 1 {
+                Self.logger.warning("Mic selected but buffer split found no mic buffers (tapCh=\(self.systemTapChannels)); mic stem will be empty")
             }
-            streams += 1
+            if split > 0, let micBuf = downmix(abl, indices: 0..<split, frameCount: frameCount, format: mixFormat) {
+                handleAudioBuffer(micBuf, converter: micConverter, outputFormat: targetFormat, writer: micWriter)
+            }
+            if let sysBuf = downmix(abl, indices: split..<abl.count, frameCount: frameCount, format: mixFormat) {
+                handleAudioBuffer(sysBuf, converter: systemConverter, outputFormat: targetFormat, writer: systemWriter)
+            }
         }
-        // Average across streams so mixing two sources doesn't clip.
-        if streams > 1 {
-            let scale = 1.0 / Float(streams)
-            for i in 0..<frameCount { dst[i] *= scale }
-        }
-
-        handleAudioBuffer(
-            mono,
-            converter: converter,
-            outputFormat: targetFormat,
-            writer: writer
-        )
         return noErr
     }
 
@@ -393,6 +492,20 @@ final class AudioCaptureManager {
     }
 
     // MARK: - Device Utilities
+
+    /// Reads the channel count of a process tap's stream format.
+    private static func tapChannelCount(tapID: AudioObjectID) -> Int {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioTapPropertyFormat,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var asbd = AudioStreamBasicDescription()
+        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        let status = AudioObjectGetPropertyData(tapID, &address, 0, nil, &size, &asbd)
+        guard status == noErr, asbd.mChannelsPerFrame > 0 else { return 2 }
+        return Int(asbd.mChannelsPerFrame)
+    }
 
     /// Reads the combined input stream format of an audio device.
     ///
