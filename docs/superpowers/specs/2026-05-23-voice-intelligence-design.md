@@ -64,9 +64,15 @@ Runs after transcription, orchestrated by the recording-type profile:
 
 1. **Transcribe** (existing). With stems: transcribe `_mic` → "You" segments and
    `_system` → remote segments. Without stems: transcribe the single file.
-2. **Diarize** (if profile.diarization): pyannote on the remote stem → speaker turns;
-   assign remote transcript segments to Speaker A/B/… by max time-overlap. "You"
-   comes from the mic stem directly.
+2. **Diarize** (if profile.diarization): a swappable **DiarizationProvider** runs on
+   the remote stem and writes a `<id>_diarization.json` **turns sidecar**
+   (`[{speaker, start, end}]`). The worker reads the sidecar and assigns remote
+   transcript segments to Speaker A/B/… by max time-overlap; if no sidecar exists,
+   all remote segments collapse to a single "Speaker 1". "You" comes from the mic
+   stem directly. Default provider is **FluidAudio** (native Swift / CoreML / Apple
+   Neural Engine), which writes the sidecar before transcription; **pyannote**
+   (Python) is an alternative provider writing the same sidecar. The worker is
+   provider-agnostic — it only consumes the sidecar contract.
 3. **Talk metrics** (always): per-speaker seconds, talk-ratio %, word count,
    words/min, turn count, interruptions (overlapping turn starts), longest monologue,
    silence/pause ratio.
@@ -122,18 +128,23 @@ trade-off for privacy.
 Long transcripts (>~30 min) use hierarchical summarization (chunk → per-chunk
 summary → synthesize), per the existing spec.
 
-## 6. Diarization & Emotion — local default, cloud seam
+## 6. Diarization & Emotion — local, swappable
 
-- **Diarization:** local `pyannote.audio` (needs PyTorch + a free HuggingFace token,
-  stored in Keychain). A `DiarizationProvider` protocol lets a cloud provider
-  (AssemblyAI/Deepgram) be slotted in later via `analysis_provider` setting.
-- **Acoustic emotion:** local SER model (e.g. `emotion2vec`/wav2vec2-SER via torch),
-  behind an `EmotionAnalyzer` protocol.
-- Models download on first use to `~/Library/Application Support/CallCapture/models/`.
+- **Diarization:** default provider is **FluidAudio** — a native Swift / CoreML SDK
+  running on the Apple Neural Engine (macOS 14+, Apache-2.0, models auto-download
+  from HF, no token). It runs in the **Swift app** on the remote stem and writes the
+  `<id>_diarization.json` turns sidecar the worker consumes. A `DiarizationProvider`
+  Swift protocol makes the engine swappable; **pyannote.audio** (Python/torch, gated
+  HF model) is the documented fallback provider, writing the same sidecar. The worker
+  never imports a diarizer — it only reads the sidecar (single-speaker fallback when
+  absent). This keeps the Python worker lean (no torch) and uses ANE for speed.
+- **Acoustic emotion:** local SER model behind an analyzer seam (Phase 4); engine TBD
+  (a CoreML/ANE option preferred to avoid torch, mirroring the diarization choice).
+- Models download on first use and cache locally; fully offline thereafter.
 
-Bundle-size impact (torch + models, ~GB) is acceptable in the dev venv and is a
-known item for the packaging milestone; an ONNX-based lighter path is a future
-optimization.
+This choice keeps the app footprint small and Apple-Silicon-fast; the
+sidecar/provider seam means switching to pyannote (or a cloud diarizer) later touches
+only the provider, not the worker.
 
 ## 7. Data Model
 
