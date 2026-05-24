@@ -13,6 +13,7 @@ struct JobRequest: Codable, Sendable {
     let whisperModel: String
     let llmEngine: String
     let remoteProvider: String
+    let recordingType: String
 
     enum CodingKeys: String, CodingKey {
         case jobId = "job_id"
@@ -25,6 +26,7 @@ struct JobRequest: Codable, Sendable {
         case whisperModel = "whisper_model"
         case llmEngine = "llm_engine"
         case remoteProvider = "remote_provider"
+        case recordingType = "recording_type"
     }
 
     /// Creates a default transcription request for a given audio file.
@@ -45,7 +47,8 @@ struct JobRequest: Codable, Sendable {
             markdownProfile: "meeting_notes",
             whisperModel: whisperModel,
             llmEngine: llmEngine,
-            remoteProvider: remoteProvider
+            remoteProvider: remoteProvider,
+            recordingType: "call_meeting"
         )
     }
 
@@ -68,7 +71,8 @@ struct JobRequest: Codable, Sendable {
             markdownProfile: settings.markdownProfile.rawValue,
             whisperModel: settings.whisperModel.rawValue,
             llmEngine: settings.llmEngine.rawValue,
-            remoteProvider: settings.remoteProvider.rawValue
+            remoteProvider: settings.remoteProvider.rawValue,
+            recordingType: session.recordingType
         )
     }
 }
