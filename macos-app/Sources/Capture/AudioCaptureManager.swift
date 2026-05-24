@@ -309,6 +309,45 @@ final class AudioCaptureManager {
         return 0
     }
 
+    /// Sums the given buffer-index range of an aggregate buffer list into a
+    /// freshly allocated mono buffer (channel-averaged per stream, then averaged
+    /// across streams). Returns nil if the range is empty or invalid.
+    private func downmix(
+        _ abl: UnsafeMutableAudioBufferListPointer,
+        indices: Range<Int>,
+        frameCount: Int,
+        format: AVAudioFormat
+    ) -> AVAudioPCMBuffer? {
+        guard !indices.isEmpty, frameCount > 0 else { return nil }
+        guard let out = AVAudioPCMBuffer(
+            pcmFormat: format,
+            frameCapacity: AVAudioFrameCount(frameCount)
+        ), let dst = out.floatChannelData?[0] else { return nil }
+        out.frameLength = AVAudioFrameCount(frameCount)
+        for i in 0..<frameCount { dst[i] = 0 }
+
+        var streams = 0
+        for bufferIndex in indices {
+            let buffer = abl[bufferIndex]
+            let channels = Int(buffer.mNumberChannels)
+            guard channels > 0, let raw = buffer.mData else { continue }
+            let src = raw.assumingMemoryBound(to: Float.self)
+            let bufFrames = Int(buffer.mDataByteSize) / (MemoryLayout<Float>.size * channels)
+            let n = min(bufFrames, frameCount)
+            for f in 0..<n {
+                var sum: Float = 0
+                for c in 0..<channels { sum += src[f * channels + c] }
+                dst[f] += sum / Float(channels)
+            }
+            streams += 1
+        }
+        if streams > 1 {
+            let scale = 1.0 / Float(streams)
+            for i in 0..<frameCount { dst[i] *= scale }
+        }
+        return out
+    }
+
     /// Handles one IO callback. The aggregate may deliver several separate
     /// float32 buffers (e.g. the system-audio tap and a mic stream). All of
     /// them are summed/averaged into a single mono buffer (the mix), then
@@ -327,57 +366,38 @@ final class AudioCaptureManager {
         )
         guard abl.count > 0 else { return noErr }
 
-        // Frame count from the first buffer (all streams share the master clock).
         let first = abl[0]
         let firstChannels = Int(first.mNumberChannels)
         guard firstChannels > 0, first.mDataByteSize > 0 else { return noErr }
-        let frameCount = Int(first.mDataByteSize)
-            / (MemoryLayout<Float>.size * firstChannels)
+        let frameCount = Int(first.mDataByteSize) / (MemoryLayout<Float>.size * firstChannels)
         guard frameCount > 0 else { return noErr }
 
         bufferCount += 1
         if bufferCount == 1 {
             let shapes = abl.map { "\($0.mNumberChannels)ch/\($0.mDataByteSize)B" }
                 .joined(separator: ", ")
-            Self.logger.info("IO buffers: count=\(abl.count) [\(shapes)] frames=\(frameCount)")
+            Self.logger.info("IO buffers: count=\(abl.count) [\(shapes)] frames=\(frameCount) tapCh=\(self.systemTapChannels)")
         }
 
-        guard let mono = AVAudioPCMBuffer(
-            pcmFormat: mixFormat,
-            frameCapacity: AVAudioFrameCount(frameCount)
-        ), let dst = mono.floatChannelData?[0] else { return noErr }
-        mono.frameLength = AVAudioFrameCount(frameCount)
+        // Full mix (all buffers) -> main writer (unchanged behavior).
+        if let mix = downmix(abl, indices: 0..<abl.count, frameCount: frameCount, format: mixFormat) {
+            handleAudioBuffer(mix, converter: converter, outputFormat: targetFormat, writer: writer)
+        }
 
-        for i in 0..<frameCount { dst[i] = 0 }
-
-        // Sum each stream's per-frame channel average into the mono mix.
-        var streams = 0
-        for buffer in abl {
-            let channels = Int(buffer.mNumberChannels)
-            guard channels > 0, let raw = buffer.mData else { continue }
-            let src = raw.assumingMemoryBound(to: Float.self)
-            let bufFrames = Int(buffer.mDataByteSize)
-                / (MemoryLayout<Float>.size * channels)
-            let n = min(bufFrames, frameCount)
-            for f in 0..<n {
-                var sum: Float = 0
-                for c in 0..<channels { sum += src[f * channels + c] }
-                dst[f] += sum / Float(channels)
+        // Separate stems (only when mic writers were created).
+        if let micWriter, let systemWriter,
+           let micConverter, let systemConverter {
+            let channelCounts = abl.map { Int($0.mNumberChannels) }
+            let split = Self.systemBufferSplit(
+                channelCounts: channelCounts, systemChannels: systemTapChannels
+            )
+            if split > 0, let micBuf = downmix(abl, indices: 0..<split, frameCount: frameCount, format: mixFormat) {
+                handleAudioBuffer(micBuf, converter: micConverter, outputFormat: targetFormat, writer: micWriter)
             }
-            streams += 1
+            if let sysBuf = downmix(abl, indices: split..<abl.count, frameCount: frameCount, format: mixFormat) {
+                handleAudioBuffer(sysBuf, converter: systemConverter, outputFormat: targetFormat, writer: systemWriter)
+            }
         }
-        // Average across streams so mixing two sources doesn't clip.
-        if streams > 1 {
-            let scale = 1.0 / Float(streams)
-            for i in 0..<frameCount { dst[i] *= scale }
-        }
-
-        handleAudioBuffer(
-            mono,
-            converter: converter,
-            outputFormat: targetFormat,
-            writer: writer
-        )
         return noErr
     }
 
