@@ -73,6 +73,7 @@ final class AppModel {
     /// Selected device UIDs. `nil` output = system default; `nil` mic = no mic.
     var selectedOutputUID: String?
     var selectedMicUID: String?
+    var selectedRecordingType: RecordingType = .callMeeting
 
     let captureManager = AudioCaptureManager()
     let sessionManager: SessionManager
@@ -182,6 +183,22 @@ final class AppModel {
             settings: settingsManager
         )
 
+        let llmBaseURL: String
+        let llmKey: String
+        switch settingsManager.llmProvider {
+        case .openrouter:
+            llmBaseURL = "https://openrouter.ai/api/v1"
+            llmKey = settingsManager.openRouterApiKey
+        case .local:
+            llmBaseURL = settingsManager.localLLMBaseURL
+            llmKey = "ollama" // placeholder; local servers ignore it
+        }
+        pythonBridge.llmEnvironment = [
+            "LLM_BASE_URL": llmBaseURL,
+            "LLM_MODEL": settingsManager.llmModel,
+            "LLM_API_KEY": llmKey,
+        ]
+
         do {
             let result = try await pythonBridge.runJob(request: request)
 
@@ -247,7 +264,8 @@ final class AppModel {
     private func startRecording() async {
         do {
             let session = sessionManager.createSession(
-                sourceApp: "System Audio"
+                sourceApp: "System Audio",
+                recordingType: selectedRecordingType
             )
             let outputURL = session.audioFileURL
             try await captureManager.startCapture(

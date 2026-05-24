@@ -20,6 +20,9 @@ final class PythonBridge: @unchecked Sendable {
     /// Absolute path to the python-worker source directory, used in dev mode.
     var pythonWorkerDirectory: String
 
+    /// Extra environment passed to the worker process (e.g. OpenRouter creds).
+    var llmEnvironment: [String: String] = [:]
+
     private static let logger = Logger(
         subsystem: "com.callcapture.app",
         category: "PythonBridge"
@@ -212,6 +215,12 @@ final class PythonBridge: @unchecked Sendable {
             process.executableURL = URL(fileURLWithPath: workerPath)
             process.arguments = [request.command]
         }
+
+        var env = ProcessInfo.processInfo.environment
+        for (key, value) in llmEnvironment where !value.isEmpty {
+            env[key] = value
+        }
+        process.environment = env
 
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()

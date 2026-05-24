@@ -53,6 +53,11 @@ struct ContentView: View {
     private func devicePickers(appModel: AppModel) -> some View {
         @Bindable var appModel = appModel
         VStack(spacing: 6) {
+            Picker("Type", selection: $appModel.selectedRecordingType) {
+                ForEach(RecordingType.allCases) { type in
+                    Text(type.displayName).tag(type)
+                }
+            }
             Picker("Output", selection: $appModel.selectedOutputUID) {
                 Text("System Default").tag(String?.none)
                 ForEach(appModel.outputDevices) { device in

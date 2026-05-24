@@ -17,6 +17,11 @@ let package = Package(
                 .product(name: "GRDB", package: "GRDB.swift")
             ],
             path: "Sources"
+        ),
+        .testTarget(
+            name: "CallCaptureTests",
+            dependencies: ["CallCapture"],
+            path: "Tests/CallCaptureTests"
         )
     ]
 )
