@@ -54,6 +54,10 @@ struct SettingsView: View {
     private func apiKeysSection(settings: SettingsManager) -> some View {
         @Bindable var settings = settings
         Section("API Keys") {
+            if settings.llmProvider == .openrouter {
+                SecureField("OpenRouter API Key", text: $settings.openRouterApiKey)
+            }
+
             if settings.defaultEngine == .remote {
                 SecureField(
                     "\(settings.remoteProvider.displayName) API Key",
@@ -80,10 +84,21 @@ struct SettingsView: View {
     private func postProcessingSection(settings: SettingsManager) -> some View {
         @Bindable var settings = settings
         Section("Post-Processing") {
-            Picker("LLM Engine", selection: $settings.llmEngine) {
-                ForEach(LLMEngine.allCases, id: \.self) { engine in
-                    Text(engine.displayName).tag(engine)
+            Picker("LLM Provider", selection: $settings.llmProvider) {
+                ForEach(LLMProvider.allCases, id: \.self) { provider in
+                    Text(provider.displayName).tag(provider)
                 }
+            }
+
+            TextField("Model", text: $settings.llmModel)
+                .textFieldStyle(.roundedBorder)
+
+            if settings.llmProvider == .local {
+                TextField("Local LLM Base URL", text: $settings.localLLMBaseURL)
+                    .textFieldStyle(.roundedBorder)
+                Text("Run a model in Ollama, e.g. `ollama run qwen2.5:32b`, then set Model to its id.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Picker("Markdown Profile", selection: $settings.markdownProfile) {
