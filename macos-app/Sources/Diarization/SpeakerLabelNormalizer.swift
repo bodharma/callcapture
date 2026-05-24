@@ -2,7 +2,7 @@ import Foundation
 
 /// A diarization turn as emitted by an engine, keyed by an opaque cluster id.
 /// Engines use Int or String ids; both are carried here as `String`.
-struct RawSpeakerTurn: Equatable {
+struct RawSpeakerTurn: Equatable, Sendable {
     let clusterId: String
     let start: Double
     let end: Double

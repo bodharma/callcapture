@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import CallCapture
 
+@Suite("DiarizationSidecar")
 struct DiarizationSidecarTests {
     @Test @available(macOS 14.2, *)
     func sidecarPathForMixedFile() {
@@ -34,8 +35,10 @@ struct DiarizationSidecarTests {
 
         let side = dir.appendingPathComponent("abc_system_diarization.json")
         #expect(FileManager.default.fileExists(atPath: side.path))
-        let obj = try JSONSerialization.jsonObject(with: Data(contentsOf: side)) as! [String: Any]
-        let arr = obj["turns"] as! [[String: Any]]
+        let obj = try #require(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: side)) as? [String: Any]
+        )
+        let arr = try #require(obj["turns"] as? [[String: Any]])
         #expect(arr.count == 2)
         #expect(arr[0]["speaker"] as? String == "Speaker 1")
         #expect(arr[0]["start"] as? Double == 0.0)

@@ -1,6 +1,7 @@
 import Testing
 @testable import CallCapture
 
+@Suite("SpeakerLabelNormalizer")
 struct SpeakerLabelNormalizerTests {
     @Test @available(macOS 14.2, *)
     func mapsClusterIdsByFirstAppearance() {

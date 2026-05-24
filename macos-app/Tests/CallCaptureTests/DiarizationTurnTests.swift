@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import CallCapture
 
+@Suite("DiarizationTurn")
 struct DiarizationTurnTests {
     @Test @available(macOS 14.2, *)
     func encodesExactlyTheWorkerContractKeys() throws {
