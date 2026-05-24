@@ -182,6 +182,22 @@ final class AppModel {
             settings: settingsManager
         )
 
+        let llmBaseURL: String
+        let llmKey: String
+        switch settingsManager.llmProvider {
+        case .openrouter:
+            llmBaseURL = "https://openrouter.ai/api/v1"
+            llmKey = settingsManager.openRouterApiKey
+        case .local:
+            llmBaseURL = settingsManager.localLLMBaseURL
+            llmKey = "ollama" // placeholder; local servers ignore it
+        }
+        pythonBridge.llmEnvironment = [
+            "LLM_BASE_URL": llmBaseURL,
+            "LLM_MODEL": settingsManager.llmModel,
+            "LLM_API_KEY": llmKey,
+        ]
+
         do {
             let result = try await pythonBridge.runJob(request: request)
 
