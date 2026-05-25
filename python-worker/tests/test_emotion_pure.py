@@ -31,3 +31,21 @@ def test_slice_signal_clamps_to_bounds():
     sig = np.zeros(sr * 2, dtype=np.float32)
     out = slice_signal(sig, sr, start=1.5, end=99.0, max_sec=30.0)
     assert len(out) == int(sr * 0.5)  # only 0.5s of audio remains past 1.5s
+
+
+import os
+
+
+def test_emotion_model_dir_under_app_support():
+    from app.analyze.emotion import emotion_model_dir
+    d = emotion_model_dir()
+    assert d.endswith("models/emotion-msp-dim")
+    assert "CallCapture" in d
+
+
+def test_is_emotion_model_ready(tmp_path, monkeypatch):
+    from app.analyze import emotion
+    monkeypatch.setattr(emotion, "emotion_model_dir", lambda: str(tmp_path))
+    assert emotion.is_emotion_model_ready() is False
+    (tmp_path / "model.yaml").write_text("meta")
+    assert emotion.is_emotion_model_ready() is True

@@ -55,3 +55,48 @@ def slice_signal(
     max_len = int(max_sec * sampling_rate)
     end_idx = min(end_idx, start_idx + max_len)
     return signal[start_idx:end_idx]
+
+
+def emotion_model_dir() -> str:
+    """Where the extracted audeering model lives (shared by prepare + analysis)."""
+    base = os.path.expanduser("~/Library/Application Support/CallCapture")
+    return os.path.join(base, "models", "emotion-msp-dim")
+
+
+def is_emotion_model_ready() -> bool:
+    """True if the model has been downloaded+extracted. Confirm the marker file
+    name against the real Zenodo archive; `model.yaml` is audonnx's loader entry."""
+    directory = emotion_model_dir()
+    return os.path.isfile(os.path.join(directory, "model.yaml"))
+
+
+# --- heavy-dep seams (lazy import; not unit-tested) -------------------------
+
+_model = None  # cached audonnx model for this process
+
+
+def _read_audio(path: str) -> tuple[np.ndarray, int]:
+    """Read `path` as float32 mono @ 16 kHz. Lazy-imports audiofile."""
+    import audiofile  # lazy
+
+    signal, sampling_rate = audiofile.read(path, always_2d=False)
+    signal = np.asarray(signal, dtype=np.float32)
+    if signal.ndim > 1:  # downmix to mono
+        signal = signal.mean(axis=0)
+    return signal, int(sampling_rate)
+
+
+def predict_vad(signal: np.ndarray, sampling_rate: int) -> tuple[float, float, float]:
+    """Return (valence, arousal, dominance) in ~0..1 for a mono 16 kHz signal.
+
+    Lazy-loads the audonnx model once. The model emits logits ordered
+    [arousal, dominance, valence]; this reorders to (valence, arousal, dominance).
+    """
+    global _model
+    if _model is None:
+        import audonnx  # lazy
+
+        _model = audonnx.load(emotion_model_dir())
+    logits = _model(signal, sampling_rate)["logits"][0]
+    arousal, dominance, valence = float(logits[0]), float(logits[1]), float(logits[2])
+    return valence, arousal, dominance
