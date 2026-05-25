@@ -76,6 +76,23 @@ def _warn(message: str) -> None:
     sys.stderr.flush()
 
 
+def _tone_block(emotion: dict | None) -> str:
+    """Acoustic-tone context for the prompt, or '' when no emotion is available."""
+    if not emotion:
+        return ""
+    lines = ["Vocal tone (acoustic emotion):"]
+    for label, e in emotion.items():
+        try:
+            valence = float(e.get("valence", 0.0))
+            arousal = float(e.get("arousal", 0.0))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        dom = e.get("dominant_emotion", "neutral") if isinstance(e, dict) else "neutral"
+        lines.append(f"- {label} sounded {dom} (valence {valence:.2f}, arousal {arousal:.2f}).")
+    lines.append("Reconcile the text sentiment with this vocal tone.\n")
+    return "\n".join(lines)
+
+
 def _build_sentiment(data: dict, segments: list[TranscriptSegment]) -> Sentiment:
     raw_by = data.get("by_speaker")
     if not isinstance(raw_by, dict):
@@ -123,7 +140,7 @@ def analyze_sentiment(
         client = LLMClient(api_key=api_key, model=model, base_url=base_url)
         data = client.complete_json(
             system=_SYSTEM_PROMPT,
-            user=f"Transcript:\n\n{_transcript_text(segments)}",
+            user=f"{_tone_block(emotion)}Transcript:\n\n{_transcript_text(segments)}",
         )
         return _build_sentiment(data, segments)
     except (LLMError, ValueError, TypeError, AttributeError, KeyError) as exc:
