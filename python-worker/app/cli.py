@@ -11,8 +11,8 @@ from typing import Any
 import click
 
 from app.analyze.attribution import attribute_segments
-from app.analyze.emotion import compute_arc, compute_speaker_emotion, is_emotion_model_ready, prepare_emotion_model
 from app.analyze.diarization import load_diarization_turns
+from app.analyze.emotion import SpeakerEmotion, compute_arc, compute_speaker_emotion, is_emotion_model_ready, prepare_emotion_model
 from app.analyze.metrics import compute_speaker_stats
 from app.export.writer import write_markdown, write_raw_transcript
 from app.analyze.sentiment import analyze_sentiment
@@ -80,7 +80,7 @@ def _write_analysis(
     request: JobRequest,
     segments: list[TranscriptSegment],
     sentiment: Sentiment | None = None,
-    emotion: dict | None = None,
+    emotion: dict[str, SpeakerEmotion] | None = None,
 ) -> str:
     """Build and write `<base>_analysis.json`; return its path."""
     speakers = compute_speaker_stats(segments, self_label="You")

@@ -89,6 +89,8 @@ def _tone_block(emotion: dict | None) -> str:
             continue
         dom = e.get("dominant_emotion", "neutral") if isinstance(e, dict) else "neutral"
         lines.append(f"- {label} sounded {dom} (valence {valence:.2f}, arousal {arousal:.2f}).")
+    if len(lines) == 1:  # header only — nothing parseable
+        return ""
     lines.append("Reconcile the text sentiment with this vocal tone.\n")
     return "\n".join(lines)
 
@@ -116,7 +118,7 @@ def _build_sentiment(data: dict, segments: list[TranscriptSegment]) -> Sentiment
 def analyze_sentiment(
     segments: list[TranscriptSegment],
     *,
-    emotion: dict | None = None,  # reserved for Phase 4b reconciliation; unused here
+    emotion: dict | None = None,  # acoustic-tone context; see _tone_block
 ) -> Sentiment | None:
     """Judge conversation sentiment from speaker-labeled segments via the LLM.
 

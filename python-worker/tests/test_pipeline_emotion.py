@@ -31,7 +31,7 @@ def test_pipeline_enriches_speakers_and_arc(tmp_path, monkeypatch):
          patch("app.cli.is_emotion_model_ready", return_value=True), \
          patch("app.cli.compute_speaker_emotion", return_value=emotion), \
          patch("app.cli.compute_arc", return_value=[ArcPoint(t=10.0, score=0.2)]), \
-         patch("app.cli.analyze_sentiment", return_value=sent):
+         patch("app.cli.analyze_sentiment", return_value=sent) as mock_sent:
         result = cli._run_pipeline(request)
 
     assert result.status == "completed"
@@ -40,6 +40,9 @@ def test_pipeline_enriches_speakers_and_arc(tmp_path, monkeypatch):
     assert you["dominant_emotion"] == "excited"
     assert you["valence"] == 0.8
     assert analysis["sentiment"]["arc"][0]["t"] == 10.0
+    passed = mock_sent.call_args.kwargs["emotion"]
+    assert passed["You"]["dominant_emotion"] == "excited"
+    assert passed["Speaker 1"]["valence"] == 0.3
 
 
 def test_pipeline_skips_emotion_when_model_absent(tmp_path, monkeypatch):
@@ -61,4 +64,27 @@ def test_pipeline_skips_emotion_when_model_absent(tmp_path, monkeypatch):
     assert you["valence"] is None
     assert analysis["sentiment"]["arc"] == []
     # analyze_sentiment called with emotion=None when model absent
+    assert mock_sent.call_args.kwargs.get("emotion") is None
+
+
+def test_pipeline_degrades_on_emotion_exception(tmp_path, monkeypatch):
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    audio = tmp_path / "sess.wav"
+    audio.write_bytes(b"")
+    request = JobRequest(job_id="j", command="transcribe", audio_path=str(audio))
+
+    sent = Sentiment(overall="neutral", overall_score=0.0)
+    with patch("app.cli._transcribe_and_attribute", return_value=_segs()), \
+         patch("app.cli.is_emotion_model_ready", return_value=True), \
+         patch("app.cli.compute_speaker_emotion", side_effect=RuntimeError("boom")), \
+         patch("app.cli.compute_arc", return_value=[]), \
+         patch("app.cli.analyze_sentiment", return_value=sent) as mock_sent:
+        result = cli._run_pipeline(request)
+
+    assert result.status == "completed"
+    analysis = json.loads((tmp_path / "sess_analysis.json").read_text())
+    you = next(s for s in analysis["speakers"] if s["label"] == "You")
+    assert you["valence"] is None
+    assert analysis["sentiment"]["arc"] == []
     assert mock_sent.call_args.kwargs.get("emotion") is None

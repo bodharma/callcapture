@@ -206,6 +206,10 @@ def _download_and_extract(directory: str) -> None:
     audeer.mkdir(directory)
     archive = audeer.download_url(_ZENODO_URL, directory, verbose=False)
     audeer.extract_archive(archive, directory)
+    try:
+        os.remove(archive)
+    except OSError:
+        pass
 
 
 def prepare_emotion_model() -> None:
