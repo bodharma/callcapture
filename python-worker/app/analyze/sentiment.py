@@ -8,6 +8,7 @@ pipeline: an unusable endpoint or a failed/garbled call yields a neutral fallbac
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 
@@ -56,9 +57,10 @@ def _norm_label(label: object) -> str:
 
 def _to_score(value: object) -> float:
     try:
-        return _clamp(float(value))
+        score = float(value)
     except (TypeError, ValueError):
         return 0.0
+    return _clamp(score) if math.isfinite(score) else 0.0
 
 
 def _neutral_fallback(segments: list[TranscriptSegment]) -> Sentiment:
@@ -75,10 +77,14 @@ def _warn(message: str) -> None:
 
 
 def _build_sentiment(data: dict, segments: list[TranscriptSegment]) -> Sentiment:
-    raw_by = data.get("by_speaker") or {}
+    raw_by = data.get("by_speaker")
+    if not isinstance(raw_by, dict):
+        raw_by = {}
     by_speaker: dict[str, SpeakerSentiment] = {}
     for label in _distinct_speakers(segments):
-        entry = raw_by.get(label) or {}
+        entry = raw_by.get(label)
+        if not isinstance(entry, dict):
+            entry = {}
         by_speaker[label] = SpeakerSentiment(
             label=_norm_label(entry.get("label")),
             score=_to_score(entry.get("score")),
@@ -120,6 +126,6 @@ def analyze_sentiment(
             user=f"Transcript:\n\n{_transcript_text(segments)}",
         )
         return _build_sentiment(data, segments)
-    except (LLMError, ValueError, TypeError) as exc:
+    except (LLMError, ValueError, TypeError, AttributeError, KeyError) as exc:
         _warn(f"sentiment failed: {exc}, using neutral sentiment")
         return _neutral_fallback(segments)

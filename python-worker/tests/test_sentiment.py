@@ -75,3 +75,50 @@ def test_llm_error_returns_neutral_fallback(monkeypatch):
         sent = analyze_sentiment(_segs())
     assert sent.overall == "neutral"
     assert set(sent.by_speaker) == {"You", "Speaker 1"}
+
+
+def test_non_dict_by_speaker_does_not_raise(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "k")
+    monkeypatch.setenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    fake = MagicMock()
+    fake.complete_json.return_value = {
+        "overall": "positive",
+        "overall_score": 0.5,
+        "by_speaker": [{"You": "positive"}],  # a list, not a dict
+    }
+    with patch("app.analyze.sentiment.LLMClient", return_value=fake):
+        sent = analyze_sentiment(_segs())
+    assert sent.overall == "positive"
+    assert set(sent.by_speaker) == {"You", "Speaker 1"}
+    assert all(s.label == "neutral" for s in sent.by_speaker.values())
+
+
+def test_non_dict_speaker_entry_does_not_raise(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "k")
+    monkeypatch.setenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    fake = MagicMock()
+    fake.complete_json.return_value = {
+        "overall": "neutral",
+        "overall_score": 0.0,
+        "by_speaker": {"You": ["nope"], "Speaker 1": {"label": "negative", "score": -0.5}},
+    }
+    with patch("app.analyze.sentiment.LLMClient", return_value=fake):
+        sent = analyze_sentiment(_segs())
+    assert sent.by_speaker["You"].label == "neutral"
+    assert sent.by_speaker["Speaker 1"].label == "negative"
+    assert sent.by_speaker["Speaker 1"].score == -0.5
+
+
+def test_non_finite_scores_become_zero(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "k")
+    monkeypatch.setenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    fake = MagicMock()
+    fake.complete_json.return_value = {
+        "overall": "positive",
+        "overall_score": float("nan"),
+        "by_speaker": {"You": {"label": "positive", "score": float("inf")}},
+    }
+    with patch("app.analyze.sentiment.LLMClient", return_value=fake):
+        sent = analyze_sentiment(_segs())
+    assert sent.overall_score == 0.0
+    assert sent.by_speaker["You"].score == 0.0
