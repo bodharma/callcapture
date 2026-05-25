@@ -12,6 +12,7 @@ import click
 
 from app.analyze.attribution import attribute_segments
 from app.analyze.diarization import load_diarization_turns
+from app.analyze.emotion import SpeakerEmotion, compute_arc, compute_speaker_emotion, is_emotion_model_ready, prepare_emotion_model
 from app.analyze.metrics import compute_speaker_stats
 from app.export.writer import write_markdown, write_raw_transcript
 from app.analyze.sentiment import analyze_sentiment
@@ -79,9 +80,19 @@ def _write_analysis(
     request: JobRequest,
     segments: list[TranscriptSegment],
     sentiment: Sentiment | None = None,
+    emotion: dict[str, SpeakerEmotion] | None = None,
 ) -> str:
     """Build and write `<base>_analysis.json`; return its path."""
     speakers = compute_speaker_stats(segments, self_label="You")
+    if emotion:
+        speakers = [
+            s.model_copy(update={
+                "valence": emotion[s.label].valence,
+                "arousal": emotion[s.label].arousal,
+                "dominant_emotion": emotion[s.label].dominant_emotion,
+            }) if s.label in emotion else s
+            for s in speakers
+        ]
     analysis = ConversationAnalysis(
         recording_type=request.recording_type,
         num_speakers=len(speakers),
@@ -112,8 +123,25 @@ def _run_pipeline(request: JobRequest) -> JobResult:
             warnings=warnings,
         )
 
-    sentiment = analyze_sentiment(segments)
-    analysis_path = _write_analysis(request, segments, sentiment)
+    emotion = {}
+    arc = []
+    if is_emotion_model_ready():
+        try:
+            emotion = compute_speaker_emotion(segments, request.audio_path)
+            arc = compute_arc(request.audio_path)
+        except Exception as exc:  # noqa: BLE001 - emotion is best-effort
+            sys.stderr.write(json.dumps({"warning": f"emotion failed: {exc}"}) + "\n")
+            sys.stderr.flush()
+            emotion, arc = {}, []
+
+    emotion_summary = {
+        label: {"valence": e.valence, "arousal": e.arousal, "dominant_emotion": e.dominant_emotion}
+        for label, e in emotion.items()
+    }
+    sentiment = analyze_sentiment(segments, emotion=emotion_summary or None)
+    if sentiment is not None and arc:
+        sentiment = sentiment.model_copy(update={"arc": arc})
+    analysis_path = _write_analysis(request, segments, sentiment, emotion)
 
     report_progress(request.job_id, 0.5, "postprocessing")
 
@@ -244,6 +272,29 @@ def export() -> None:
 
     sys.stderr.write('{"info": "export command is handled as part of transcribe pipeline"}\n')
     sys.stderr.flush()
+
+
+@cli.command(name="prepare_emotion")
+def prepare_emotion() -> None:
+    """Download the acoustic-emotion model (triggered from Settings)."""
+    raw = click.get_text_stream("stdin").read().strip()
+    if _check_ping(raw):
+        return
+    job_id = "prepare_emotion"
+    try:
+        data = json.loads(raw) if raw else {}
+        job_id = data.get("job_id", job_id)
+    except json.JSONDecodeError:
+        pass
+
+    report_progress(job_id, 0.1, "downloading emotion model")
+    try:
+        prepare_emotion_model()
+    except Exception as exc:  # noqa: BLE001 - surface as an error result
+        report_result(JobResult(job_id=job_id, status="error", error_message=str(exc)))
+        return
+    report_progress(job_id, 1.0, "done")
+    report_result(JobResult(job_id=job_id, status="completed"))
 
 
 # Register the transcribe command with the expected CLI name

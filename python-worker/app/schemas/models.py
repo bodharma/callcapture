@@ -12,7 +12,7 @@ class JobRequest(BaseModel, frozen=True):
     """Incoming job request from the Swift host process."""
 
     job_id: str = Field(description="UUID string identifying this job")
-    command: Literal["transcribe", "postprocess", "export"]
+    command: Literal["transcribe", "postprocess", "export", "prepare_emotion"]
     recording_type: Literal["call_meeting", "voice_memo", "lecture"] = "call_meeting"
     audio_path: str
     engine: Literal["local_whisper", "remote"] = "local_whisper"
@@ -74,6 +74,9 @@ class SpeakerStats(BaseModel, frozen=True):
     words_per_min: float = 0.0
     turns: int = 0
     longest_monologue_sec: float = 0.0
+    dominant_emotion: str | None = None
+    valence: float | None = None
+    arousal: float | None = None
 
 
 class SpeakerSentiment(BaseModel, frozen=True):
@@ -83,13 +86,20 @@ class SpeakerSentiment(BaseModel, frozen=True):
     score: float = 0.0       # -1.0 (very negative) .. 1.0 (very positive)
 
 
+class ArcPoint(BaseModel, frozen=True):
+    """One point on the conversation emotional arc (acoustic valence over time)."""
+
+    t: float       # window-center seconds
+    score: float   # valence centered to -1..1
+
+
 class Sentiment(BaseModel, frozen=True):
     """Conversation sentiment (Phase 4a: text/LLM; `arc` populated in Phase 4b)."""
 
     overall: str = "neutral"  # positive | neutral | negative | mixed
     overall_score: float = 0.0
     by_speaker: dict[str, SpeakerSentiment] = Field(default_factory=dict)
-    arc: list[float] = Field(default_factory=list)
+    arc: list[ArcPoint] = Field(default_factory=list)
 
 
 class ConversationAnalysis(BaseModel, frozen=True):
