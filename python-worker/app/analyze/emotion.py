@@ -193,3 +193,23 @@ def compute_arc(
         valence, _, _ = predict_vad(clip, sr)
         points.append(ArcPoint(t=round(start + step / 2.0, 2), score=round(2.0 * valence - 1.0, 4)))
     return points
+
+
+_ZENODO_URL = "https://zenodo.org/record/6221127/files/w2v2-L-robust-12.6bc4a7fd-1.1.0.zip"
+
+
+def _download_and_extract(directory: str) -> None:
+    """Download the Zenodo archive and extract it into `directory`. Lazy-imports
+    audeer."""
+    import audeer  # lazy
+
+    audeer.mkdir(directory)
+    archive = audeer.download_url(_ZENODO_URL, directory, verbose=False)
+    audeer.extract_archive(archive, directory)
+
+
+def prepare_emotion_model() -> None:
+    """Ensure the emotion model is downloaded+extracted. Idempotent."""
+    if is_emotion_model_ready():
+        return
+    _download_and_extract(emotion_model_dir())

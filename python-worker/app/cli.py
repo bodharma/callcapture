@@ -11,6 +11,7 @@ from typing import Any
 import click
 
 from app.analyze.attribution import attribute_segments
+from app.analyze.emotion import prepare_emotion_model
 from app.analyze.diarization import load_diarization_turns
 from app.analyze.metrics import compute_speaker_stats
 from app.export.writer import write_markdown, write_raw_transcript
@@ -244,6 +245,29 @@ def export() -> None:
 
     sys.stderr.write('{"info": "export command is handled as part of transcribe pipeline"}\n')
     sys.stderr.flush()
+
+
+@cli.command(name="prepare_emotion")
+def prepare_emotion() -> None:
+    """Download the acoustic-emotion model (triggered from Settings)."""
+    raw = click.get_text_stream("stdin").read().strip()
+    if _check_ping(raw):
+        return
+    job_id = "prepare_emotion"
+    try:
+        data = json.loads(raw) if raw else {}
+        job_id = data.get("job_id", job_id)
+    except json.JSONDecodeError:
+        pass
+
+    report_progress(job_id, 0.1, "downloading emotion model")
+    try:
+        prepare_emotion_model()
+    except Exception as exc:  # noqa: BLE001 - surface as an error result
+        report_result(JobResult(job_id=job_id, status="error", error_message=str(exc)))
+        return
+    report_progress(job_id, 1.0, "done")
+    report_result(JobResult(job_id=job_id, status="completed"))
 
 
 # Register the transcribe command with the expected CLI name
