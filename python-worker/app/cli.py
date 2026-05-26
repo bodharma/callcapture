@@ -13,16 +13,19 @@ import click
 from app.analyze.attribution import attribute_segments
 from app.analyze.diarization import load_diarization_turns
 from app.analyze.emotion import SpeakerEmotion, compute_arc, compute_speaker_emotion, is_emotion_model_ready, prepare_emotion_model
+from app.analyze.insights import analyze_insights
 from app.analyze.metrics import compute_speaker_stats
-from app.export.writer import write_markdown, write_raw_transcript
 from app.analyze.sentiment import analyze_sentiment
-from app.postprocess.formatter import render_markdown, render_sentiment_section
+from app.export.writer import write_markdown, write_raw_transcript
+from app.postprocess.formatter import render_markdown, render_note
 from app.postprocess.markdown import generate_markdown
 from app.schemas.models import (
     ConversationAnalysis,
+    Insights,
     JobRequest,
     JobResult,
     Sentiment,
+    SpeakerStats,
     TranscriptSegment,
 )
 from app.transcribe.engine import transcribe, transcribe_path
@@ -76,13 +79,11 @@ def _transcribe_and_attribute(request: JobRequest) -> list[TranscriptSegment]:
     return attribute_segments([], segments, turns, self_label="You")
 
 
-def _write_analysis(
-    request: JobRequest,
+def _build_speakers(
     segments: list[TranscriptSegment],
-    sentiment: Sentiment | None = None,
     emotion: dict[str, SpeakerEmotion] | None = None,
-) -> str:
-    """Build and write `<base>_analysis.json`; return its path."""
+) -> list[SpeakerStats]:
+    """Per-speaker talk metrics, enriched with acoustic emotion when available."""
     speakers = compute_speaker_stats(segments, self_label="You")
     if emotion:
         speakers = [
@@ -93,11 +94,30 @@ def _write_analysis(
             }) if s.label in emotion else s
             for s in speakers
         ]
+    return speakers
+
+
+def _write_analysis(
+    request: JobRequest,
+    segments: list[TranscriptSegment],
+    sentiment: Sentiment | None = None,
+    emotion: dict[str, SpeakerEmotion] | None = None,
+    insights: Insights | None = None,
+    speakers: list[SpeakerStats] | None = None,
+) -> str:
+    """Build and write `<base>_analysis.json`; return its path.
+
+    `speakers` may be passed in to avoid recomputing talk metrics when the caller
+    already built them (e.g. for note rendering); otherwise they are derived here.
+    """
+    if speakers is None:
+        speakers = _build_speakers(segments, emotion)
     analysis = ConversationAnalysis(
         recording_type=request.recording_type,
         num_speakers=len(speakers),
         speakers=speakers,
         sentiment=sentiment,
+        insights=insights,
     )
     base = os.path.splitext(request.audio_path)[0]
     analysis_path = f"{base}_analysis.json"
@@ -141,16 +161,21 @@ def _run_pipeline(request: JobRequest) -> JobResult:
     sentiment = analyze_sentiment(segments, emotion=emotion_summary or None)
     if sentiment is not None and arc:
         sentiment = sentiment.model_copy(update={"arc": arc})
-    analysis_path = _write_analysis(request, segments, sentiment, emotion)
+
+    insights = analyze_insights(
+        segments,
+        recording_type=request.recording_type,
+        sentiment=sentiment,
+        emotion=emotion_summary or None,
+    )
+    speakers = _build_speakers(segments, emotion)
+    analysis_path = _write_analysis(
+        request, segments, sentiment, emotion, insights, speakers=speakers
+    )
 
     report_progress(request.job_id, 0.5, "postprocessing")
 
-    note = generate_markdown(segments, profile=request.markdown_profile)
-
-    rendered = render_markdown(note, profile=request.markdown_profile)
-    section = render_sentiment_section(sentiment)
-    if section:
-        rendered = f"{rendered}\n{section}"
+    rendered = render_note(request.recording_type, insights, sentiment, speakers, segments)
 
     report_progress(request.job_id, 0.8, "exporting")
 

@@ -7,12 +7,15 @@ pipeline: an unusable endpoint or a failed/garbled call yields a neutral fallbac
 
 from __future__ import annotations
 
-import json
 import math
-import os
-import sys
 
-from app.postprocess.llm_client import LLMClient, LLMError, OPENROUTER_BASE_URL
+from app.postprocess.llm_client import LLMClient, LLMError
+from app.postprocess.llm_env import (
+    format_speaker_tone_lines,
+    resolve_llm_env,
+    transcript_text,
+    warn,
+)
 from app.schemas.models import Sentiment, SpeakerSentiment, TranscriptSegment
 
 _VALID_LABELS = {"positive", "neutral", "negative", "mixed"}
@@ -36,14 +39,6 @@ def _distinct_speakers(segments: list[TranscriptSegment]) -> list[str]:
         if label not in seen:
             seen.append(label)
     return seen
-
-
-def _transcript_text(segments: list[TranscriptSegment]) -> str:
-    lines: list[str] = []
-    for s in segments:
-        speaker = f"[{s.speaker}] " if s.speaker else ""
-        lines.append(f"{speaker}{s.text}")
-    return "\n".join(lines)
 
 
 def _clamp(value: float) -> float:
@@ -71,27 +66,16 @@ def _neutral_fallback(segments: list[TranscriptSegment]) -> Sentiment:
     return Sentiment(overall="neutral", overall_score=0.0, by_speaker=by_speaker)
 
 
-def _warn(message: str) -> None:
-    sys.stderr.write(json.dumps({"warning": message}) + "\n")
-    sys.stderr.flush()
-
-
 def _tone_block(emotion: dict | None) -> str:
     """Acoustic-tone context for the prompt, or '' when no emotion is available."""
-    if not emotion:
+    tone_lines = format_speaker_tone_lines(emotion)
+    if not tone_lines:  # no emotion, or nothing parseable
         return ""
-    lines = ["Vocal tone (acoustic emotion):"]
-    for label, e in emotion.items():
-        try:
-            valence = float(e.get("valence", 0.0))
-            arousal = float(e.get("arousal", 0.0))
-        except (TypeError, ValueError, AttributeError):
-            continue
-        dom = e.get("dominant_emotion", "neutral") if isinstance(e, dict) else "neutral"
-        lines.append(f"- {label} sounded {dom} (valence {valence:.2f}, arousal {arousal:.2f}).")
-    if len(lines) == 1:  # header only — nothing parseable
-        return ""
-    lines.append("Reconcile the text sentiment with this vocal tone.\n")
+    lines = [
+        "Vocal tone (acoustic emotion):",
+        *tone_lines,
+        "Reconcile the text sentiment with this vocal tone.\n",
+    ]
     return "\n".join(lines)
 
 
@@ -129,22 +113,18 @@ def analyze_sentiment(
     if not segments:
         return None
 
-    base_url = os.environ.get("LLM_BASE_URL", OPENROUTER_BASE_URL)
-    model = os.environ.get("LLM_MODEL", "google/gemini-2.5-flash")
-    api_key = os.environ.get("LLM_API_KEY", "")
-    is_local = "openrouter.ai" not in base_url
-
-    if not api_key and not is_local:
-        _warn("no LLM_API_KEY for cloud endpoint, using neutral sentiment")
+    env = resolve_llm_env()
+    if not env.api_key and not env.is_local:
+        warn("no LLM_API_KEY for cloud endpoint, using neutral sentiment")
         return _neutral_fallback(segments)
 
     try:
-        client = LLMClient(api_key=api_key, model=model, base_url=base_url)
+        client = LLMClient(api_key=env.api_key, model=env.model, base_url=env.base_url)
         data = client.complete_json(
             system=_SYSTEM_PROMPT,
-            user=f"{_tone_block(emotion)}Transcript:\n\n{_transcript_text(segments)}",
+            user=f"{_tone_block(emotion)}Transcript:\n\n{transcript_text(segments)}",
         )
         return _build_sentiment(data, segments)
     except (LLMError, ValueError, TypeError, AttributeError, KeyError) as exc:
-        _warn(f"sentiment failed: {exc}, using neutral sentiment")
+        warn(f"sentiment failed: {exc}, using neutral sentiment")
         return _neutral_fallback(segments)

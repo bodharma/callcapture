@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import json
-import os
-import sys
-
-from app.postprocess.llm_client import LLMClient, LLMError, OPENROUTER_BASE_URL
+from app.postprocess.llm_client import LLMClient, LLMError
+from app.postprocess.llm_env import resolve_llm_env, transcript_text, warn
 from app.schemas.models import MarkdownNote, TranscriptSegment
 
 _SYSTEM_PROMPT = (
@@ -16,15 +13,6 @@ _SYSTEM_PROMPT = (
     '"decisions": [str], "action_items": [str (each starting with "- [ ] " or empty string)]}\n'
     "Rules: No invented facts. Mark unclear text with [unclear]."
 )
-
-
-def _transcript_to_text(segments: list[TranscriptSegment]) -> str:
-    """Format transcript segments into plain text for the LLM prompt."""
-    lines: list[str] = []
-    for seg in segments:
-        speaker = f"[{seg.speaker}] " if seg.speaker else ""
-        lines.append(f"[{seg.start:.1f}s] {speaker}{seg.text}")
-    return "\n".join(lines)
 
 
 def _fallback_extraction(
@@ -58,24 +46,16 @@ def generate_markdown(
         segments: Transcript segments.
         profile: Markdown profile (used during rendering).
     """
-    base_url = os.environ.get("LLM_BASE_URL", OPENROUTER_BASE_URL)
-    model = os.environ.get("LLM_MODEL", "google/gemini-2.5-flash")
-    api_key = os.environ.get("LLM_API_KEY", "")
-    is_local = "openrouter.ai" not in base_url
-
-    if not api_key and not is_local:
-        sys.stderr.write(
-            json.dumps({"warning": "no LLM_API_KEY for cloud endpoint, using fallback"}) + "\n"
-        )
-        sys.stderr.flush()
+    env = resolve_llm_env()
+    if not env.api_key and not env.is_local:
+        warn("no LLM_API_KEY for cloud endpoint, using fallback")
         return _fallback_extraction(segments)
 
     try:
-        client = LLMClient(api_key=api_key, model=model, base_url=base_url)
-        transcript_text = _transcript_to_text(segments)
+        client = LLMClient(api_key=env.api_key, model=env.model, base_url=env.base_url)
         data = client.complete_json(
             system=_SYSTEM_PROMPT,
-            user=f"Transcript:\n\n{transcript_text}",
+            user=f"Transcript:\n\n{transcript_text(segments, timestamps=True)}",
         )
         return MarkdownNote(
             title=data.get("title", "Untitled"),
@@ -86,8 +66,5 @@ def generate_markdown(
             transcript_segments=list(segments),
         )
     except LLMError as exc:
-        sys.stderr.write(
-            json.dumps({"warning": f"LLM failed: {exc}, using fallback"}) + "\n"
-        )
-        sys.stderr.flush()
+        warn(f"LLM failed: {exc}, using fallback")
         return _fallback_extraction(segments)
