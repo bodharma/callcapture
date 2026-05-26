@@ -98,6 +98,8 @@ def test_lecture_note_shape():
     assert "## Q&A" in out
     assert "## Takeaways" in out
     assert "- divide" in out
+    assert "## Transcript" not in out   # lecture body omits the transcript
+    assert "## Sentiment" not in out    # and the sentiment section
 
 
 def test_unknown_type_falls_back_to_call():

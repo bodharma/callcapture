@@ -103,9 +103,15 @@ def _write_analysis(
     sentiment: Sentiment | None = None,
     emotion: dict[str, SpeakerEmotion] | None = None,
     insights: Insights | None = None,
+    speakers: list[SpeakerStats] | None = None,
 ) -> str:
-    """Build and write `<base>_analysis.json`; return its path."""
-    speakers = _build_speakers(segments, emotion)
+    """Build and write `<base>_analysis.json`; return its path.
+
+    `speakers` may be passed in to avoid recomputing talk metrics when the caller
+    already built them (e.g. for note rendering); otherwise they are derived here.
+    """
+    if speakers is None:
+        speakers = _build_speakers(segments, emotion)
     analysis = ConversationAnalysis(
         recording_type=request.recording_type,
         num_speakers=len(speakers),
@@ -162,11 +168,13 @@ def _run_pipeline(request: JobRequest) -> JobResult:
         sentiment=sentiment,
         emotion=emotion_summary or None,
     )
-    analysis_path = _write_analysis(request, segments, sentiment, emotion, insights)
+    speakers = _build_speakers(segments, emotion)
+    analysis_path = _write_analysis(
+        request, segments, sentiment, emotion, insights, speakers=speakers
+    )
 
     report_progress(request.job_id, 0.5, "postprocessing")
 
-    speakers = _build_speakers(segments, emotion)
     rendered = render_note(request.recording_type, insights, sentiment, speakers, segments)
 
     report_progress(request.job_id, 0.8, "exporting")
