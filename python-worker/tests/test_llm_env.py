@@ -44,6 +44,18 @@ def test_transcript_text_no_speaker():
     assert transcript_text(segs) == "hi"
 
 
+def test_transcript_text_multiple_segments():
+    segs = [
+        TranscriptSegment(start=0.0, end=1.0, text="hello", speaker="A"),
+        TranscriptSegment(start=1.0, end=2.0, text="world", speaker="B"),
+    ]
+    assert transcript_text(segs) == "[A] hello\n[B] world"
+
+
+def test_transcript_text_empty():
+    assert transcript_text([]) == ""
+
+
 def test_warn_writes_json(capsys):
     warn("boom")
     assert '{"warning": "boom"}' in capsys.readouterr().err

@@ -46,8 +46,8 @@ def warn(message: str) -> None:
 def transcript_text(segments: list[TranscriptSegment], *, timestamps: bool = False) -> str:
     """Speaker-labeled transcript text for an LLM prompt.
 
-    `timestamps=True` prefixes each line with `[12.3s] ` (markdown.py's format);
-    the default omits timestamps (sentiment.py's format).
+    `timestamps=True` prefixes each line with `[12.3s] ` for time-anchored prompts;
+    the default produces plain speaker-labeled lines.
     """
     lines: list[str] = []
     for s in segments:
