@@ -80,6 +80,7 @@ struct SessionDetailView: View {
                     Picker("", selection: Binding(
                         get: { RecordingType(rawValue: current.recordingType) ?? .callMeeting },
                         set: { newType in
+                            // id is the stable original identity; `current` is read-only here.
                             appModel.sessionManager.updateRecordingType(
                                 id: session.id,
                                 recordingType: newType.rawValue
@@ -166,7 +167,6 @@ struct SessionDetailView: View {
         if let analysis, analysis.hasContent {
             GroupBox("Conversation Insights") {
                 ConversationInsightsView(analysis: analysis)
-                    .padding(.vertical, 4)
             }
         }
     }
