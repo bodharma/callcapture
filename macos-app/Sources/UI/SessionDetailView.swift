@@ -15,6 +15,8 @@ struct SessionDetailView: View {
     /// Freshly-reloaded copy of the session, so transcript paths/status are
     /// current after transcription (the passed-in struct can be stale).
     @State private var liveSession: Session?
+    /// Decoded conversation analysis sidecar for the insights panel.
+    @State private var analysis: ConversationAnalysis?
 
     private static let logger = Logger(
         subsystem: "com.callcapture.app",
@@ -32,6 +34,7 @@ struct SessionDetailView: View {
                 audioSection
                 transcriptSection
                 markdownSection
+                insightsSection
                 errorSection
                 actionButtons
             }
@@ -47,6 +50,7 @@ struct SessionDetailView: View {
 
     private func reload() {
         liveSession = appModel.sessionManager.session(id: session.id)
+        analysis = current.analysisPath.flatMap(ConversationAnalysis.load(fromPath:))
     }
 
     // MARK: - Sections
@@ -69,6 +73,29 @@ struct SessionDetailView: View {
     private var metadataSection: some View {
         GroupBox("Details") {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+                GridRow {
+                    Text("Type")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Picker("", selection: Binding(
+                        get: { RecordingType(rawValue: current.recordingType) ?? .callMeeting },
+                        set: { newType in
+                            // id is the stable original identity; `current` is read-only here.
+                            appModel.sessionManager.updateRecordingType(
+                                id: session.id,
+                                recordingType: newType.rawValue
+                            )
+                            reload()
+                        }
+                    )) {
+                        ForEach(RecordingType.allCases) { type in
+                            Text(type.displayName).tag(type)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                }
                 detailRow("Source App", session.sourceApp)
                 detailRow("Started", session.startedAt.formatted(date: .abbreviated, time: .standard))
                 if let endedAt = session.endedAt {
@@ -136,6 +163,15 @@ struct SessionDetailView: View {
     }
 
     @ViewBuilder
+    private var insightsSection: some View {
+        if let analysis, analysis.hasContent {
+            GroupBox("Conversation Insights") {
+                ConversationInsightsView(analysis: analysis)
+            }
+        }
+    }
+
+    @ViewBuilder
     private var errorSection: some View {
         if current.status == "error", let error = transcriptionError {
             GroupBox("Error") {
@@ -169,7 +205,7 @@ struct SessionDetailView: View {
                 transcribeButton(label: "Transcribe", engine: "local_whisper")
             }
             if current.status == "transcribed" {
-                transcribeButton(label: "Re-transcribe", engine: "local_whisper")
+                transcribeButton(label: "Re-process", engine: "local_whisper")
             }
 
             if hasMarkdown {
@@ -203,7 +239,8 @@ struct SessionDetailView: View {
         transcriptionError = nil
         saveMessage = nil
 
-        await appModel.transcribeSession(session)
+        // Use `current` (DB-fresh) so Re-process picks up an edited recording type.
+        await appModel.transcribeSession(current)
 
         if appModel.state == .error {
             transcriptionError = appModel.lastError
