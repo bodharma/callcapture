@@ -60,6 +60,15 @@ struct AnalysisModelsTests {
         #expect(a?.hasContent == true)
     }
 
+    @Test("hasContent is false for insights carrying only prose (no panel-rendered fields)")
+    func hasContentInsightsProseOnly() throws {
+        // Summary/title are shown in the Markdown note, not the structured panel, so
+        // an insights block with no speakers/sentiment/actions intentionally hides it.
+        let a = decode(#"{"insights":{"title":"Memo","summary":"Did stuff."}}"#)
+        #expect(a?.insights != nil)
+        #expect(a?.hasContent == false)
+    }
+
     @Test("load returns nil for a missing file")
     func missingFile() {
         let path = NSTemporaryDirectory() + "cc-missing-\(UUID().uuidString).json"

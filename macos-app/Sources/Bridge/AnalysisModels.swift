@@ -1,6 +1,8 @@
 import Foundation
 import OSLog
 
+private let analysisLogger = Logger(subsystem: "com.callcapture.app", category: "Analysis")
+
 /// Decodable mirror of the worker's `<id>_analysis.json`. Every field is decoded
 /// defensively (`decodeIfPresent` + default) so a partial, older, or future-extended
 /// payload never throws; `load(fromPath:)` returns nil on any file/parse failure.
@@ -162,6 +164,11 @@ struct ConversationAnalysis: Decodable, Sendable {
     }
 
     /// True when there is anything worth showing in the insights panel.
+    ///
+    /// Mirrors exactly the fields `ConversationInsightsView` renders — speakers,
+    /// overall sentiment, recommended actions, and action items. Insight prose
+    /// (summary/dynamics/outline/…) is shown in the Markdown note, not this panel,
+    /// so an insights block carrying only prose intentionally leaves this false.
     var hasContent: Bool {
         !speakers.isEmpty
             || sentiment != nil
@@ -176,8 +183,7 @@ struct ConversationAnalysis: Decodable, Sendable {
         do {
             return try JSONDecoder().decode(ConversationAnalysis.self, from: data)
         } catch {
-            Logger(subsystem: "com.callcapture.app", category: "Analysis")
-                .error("Failed to decode analysis at \(path): \(error.localizedDescription)")
+            analysisLogger.error("Failed to decode analysis at \(path): \(error.localizedDescription)")
             return nil
         }
     }
