@@ -47,8 +47,10 @@ def transcribe_local(
 
     report_progress(job_id, 0.1, "loading_model")
 
-    lang = language if language != "auto" else ""
-    w = Model(model, language=lang if lang else "en")
+    # pywhispercpp forwards `language` to whisper.cpp; "auto" enables
+    # auto-detection. Do NOT silently rewrite "auto" -> "en" (the prior bug
+    # forced every recording to English regardless of the spoken language).
+    w = Model(model, language=language)
 
     report_progress(job_id, 0.2, "transcribing")
 
