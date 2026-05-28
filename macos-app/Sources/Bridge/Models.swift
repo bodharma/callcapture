@@ -74,7 +74,15 @@ struct JobRequest: Codable, Sendable {
         session: Session,
         settings: SettingsManager
     ) -> JobRequest {
-        JobRequest(
+        // Resolve `.auto` to a concrete provider name the worker understands:
+        // AssemblyAI for its preferred languages, Deepgram otherwise.
+        let provider: String
+        if settings.remoteProvider == .auto {
+            provider = RemoteProvider.resolveAuto(forLanguage: session.language).rawValue
+        } else {
+            provider = settings.remoteProvider.rawValue
+        }
+        return JobRequest(
             jobId: session.id,
             command: "transcribe",
             audioPath: session.audioPath,
@@ -83,7 +91,7 @@ struct JobRequest: Codable, Sendable {
             markdownProfile: settings.markdownProfile.rawValue,
             whisperModel: settings.whisperModel.rawValue,
             llmEngine: settings.llmEngine.rawValue,
-            remoteProvider: settings.remoteProvider.rawValue,
+            remoteProvider: provider,
             recordingType: session.recordingType
         )
     }

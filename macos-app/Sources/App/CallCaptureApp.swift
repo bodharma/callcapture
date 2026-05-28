@@ -200,17 +200,40 @@ final class AppModel {
             "LLM_API_KEY": llmKey,
         ]
         // Remote transcription providers read a provider-specific key from env.
-        // Plumb the configured `remoteApiKey` into the right slot when the user
-        // has actually picked the remote engine.
-        if settingsManager.defaultEngine == .remote && !settingsManager.remoteApiKey.isEmpty {
-            let key: String
+        // For the `.auto` provider we resolve to AssemblyAI or Deepgram based
+        // on the session's spoken language AND ship both keys so the worker
+        // can use whichever it ends up routing through.
+        if settingsManager.defaultEngine == .remote {
             switch settingsManager.remoteProvider {
-            case .groq: key = "GROQ_API_KEY"
-            case .openai: key = "OPENAI_API_KEY"
-            case .deepgram: key = "DEEPGRAM_API_KEY"
-            case .assemblyai: key = "ASSEMBLYAI_API_KEY"
+            case .auto:
+                if !settingsManager.assemblyAIApiKey.isEmpty {
+                    llmEnv["ASSEMBLYAI_API_KEY"] = settingsManager.assemblyAIApiKey
+                }
+                if !settingsManager.deepgramApiKey.isEmpty {
+                    llmEnv["DEEPGRAM_API_KEY"] = settingsManager.deepgramApiKey
+                }
+            case .assemblyai:
+                if !settingsManager.assemblyAIApiKey.isEmpty {
+                    llmEnv["ASSEMBLYAI_API_KEY"] = settingsManager.assemblyAIApiKey
+                } else if !settingsManager.remoteApiKey.isEmpty {
+                    // Back-compat for users who pasted into the old single field.
+                    llmEnv["ASSEMBLYAI_API_KEY"] = settingsManager.remoteApiKey
+                }
+            case .deepgram:
+                if !settingsManager.deepgramApiKey.isEmpty {
+                    llmEnv["DEEPGRAM_API_KEY"] = settingsManager.deepgramApiKey
+                } else if !settingsManager.remoteApiKey.isEmpty {
+                    llmEnv["DEEPGRAM_API_KEY"] = settingsManager.remoteApiKey
+                }
+            case .groq:
+                if !settingsManager.remoteApiKey.isEmpty {
+                    llmEnv["GROQ_API_KEY"] = settingsManager.remoteApiKey
+                }
+            case .openai:
+                if !settingsManager.remoteApiKey.isEmpty {
+                    llmEnv["OPENAI_API_KEY"] = settingsManager.remoteApiKey
+                }
             }
-            llmEnv[key] = settingsManager.remoteApiKey
         }
 
         // Diarize the remote audio and write the turns sidecar the worker reads,

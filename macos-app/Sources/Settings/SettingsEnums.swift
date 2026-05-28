@@ -30,17 +30,21 @@ enum WhisperModel: String, Codable, CaseIterable, Sendable {
 
 /// Remote transcription provider when using a cloud API.
 enum RemoteProvider: String, Codable, CaseIterable, Sendable {
+    /// Picks AssemblyAI or Deepgram per recording based on `session.language`.
+    /// Requires BOTH API keys configured.
+    case auto
+    case assemblyai
+    case deepgram
     case groq
     case openai
-    case deepgram
-    case assemblyai
 
     var displayName: String {
         switch self {
+        case .auto: "Auto (by language — AssemblyAI + Deepgram)"
+        case .assemblyai: "AssemblyAI (diarization, sentiment, summaries, topics)"
+        case .deepgram: "Deepgram (diarization, sentiment, topics)"
         case .groq: "Groq (fast Whisper)"
         case .openai: "OpenAI Whisper"
-        case .deepgram: "Deepgram (diarization, sentiment, topics)"
-        case .assemblyai: "AssemblyAI (diarization, sentiment, summaries, topics)"
         }
     }
 
@@ -49,6 +53,7 @@ enum RemoteProvider: String, Codable, CaseIterable, Sendable {
     /// can collapse the bound field to zero width, hiding it entirely.
     var shortName: String {
         switch self {
+        case .auto: "Auto"
         case .groq: "Groq"
         case .openai: "OpenAI"
         case .deepgram: "Deepgram"
@@ -63,8 +68,23 @@ enum RemoteProvider: String, Codable, CaseIterable, Sendable {
     var hasAnalytics: Bool {
         switch self {
         case .groq, .openai: false
-        case .deepgram, .assemblyai: true
+        case .auto, .deepgram, .assemblyai: true
         }
+    }
+}
+
+extension RemoteProvider {
+    /// Languages that route to AssemblyAI when `.auto` is selected. Anything
+    /// else goes to Deepgram Nova-3 (broader multilingual coverage with
+    /// diarization + sentiment).
+    static let assemblyAIPreferredLanguages: Set<String> = [
+        "auto", "en", "es", "fr", "de", "it", "pt", "nl", "ja", "zh", "ko", "hi",
+    ]
+
+    /// Resolve `.auto` to a concrete provider for the given Whisper language
+    /// code (i.e. the `Session.language` value).
+    static func resolveAuto(forLanguage language: String) -> RemoteProvider {
+        Self.assemblyAIPreferredLanguages.contains(language) ? .assemblyai : .deepgram
     }
 }
 

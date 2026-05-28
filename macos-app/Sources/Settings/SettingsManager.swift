@@ -14,10 +14,29 @@ final class SettingsManager {
     var whisperModel: WhisperModel = .base { didSet { persist("whisper_model", whisperModel.rawValue) } }
     var remoteProvider: RemoteProvider = .groq { didSet { persist("remote_provider", remoteProvider.rawValue) } }
 
+    /// Legacy single-key field, used by Groq/OpenAI Whisper.
     var remoteApiKey: String = "" {
         didSet {
             KeychainHelper.save(remoteApiKey, for: "remote_api_key")
             persist("remote_api_key", "keychain")
+        }
+    }
+
+    /// AssemblyAI key — split from `remoteApiKey` so the user can hold both
+    /// AssemblyAI + Deepgram credentials at once and the `.auto` provider can
+    /// pick between them at transcribe time based on `session.language`.
+    var assemblyAIApiKey: String = "" {
+        didSet {
+            KeychainHelper.save(assemblyAIApiKey, for: "assemblyai_api_key")
+            persist("assemblyai_api_key", "keychain")
+        }
+    }
+
+    /// Deepgram key (see `assemblyAIApiKey`).
+    var deepgramApiKey: String = "" {
+        didSet {
+            KeychainHelper.save(deepgramApiKey, for: "deepgram_api_key")
+            persist("deepgram_api_key", "keychain")
         }
     }
 
@@ -131,6 +150,8 @@ final class SettingsManager {
 
         // API keys live in Keychain, not SQLite.
         remoteApiKey = KeychainHelper.load(for: "remote_api_key")
+        assemblyAIApiKey = KeychainHelper.load(for: "assemblyai_api_key")
+        deepgramApiKey = KeychainHelper.load(for: "deepgram_api_key")
         llmApiKey = KeychainHelper.load(for: "llm_api_key")
         openRouterApiKey = KeychainHelper.load(for: "openrouter_api_key")
 

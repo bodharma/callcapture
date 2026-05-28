@@ -50,6 +50,35 @@ struct SettingsView: View {
         }
     }
 
+    /// Per-provider key fields shown inside the "API Keys" section when the
+    /// default transcription engine is remote. AssemblyAI + Deepgram get their
+    /// own dedicated fields so the `.auto` provider has both available; Groq /
+    /// OpenAI fall back to the single legacy `remoteApiKey`.
+    @ViewBuilder
+    private func remoteKeyFields(settings: SettingsManager) -> some View {
+        @Bindable var settings = settings
+        switch settings.remoteProvider {
+        case .auto:
+            SecureField("AssemblyAI API Key", text: $settings.assemblyAIApiKey)
+            SecureField("Deepgram API Key", text: $settings.deepgramApiKey)
+            Text("Routes per recording by language: English / Spanish / French / German / Italian / Portuguese / Dutch / Japanese / Chinese / Korean / Hindi → AssemblyAI. Ukrainian / Russian / Polish / Czech / Swedish / Turkish / Arabic → Deepgram.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .assemblyai:
+            SecureField("AssemblyAI API Key", text: $settings.assemblyAIApiKey)
+            Text("Provides diarization, sentiment, summaries and topics for English-supported languages; falls back to nano (text only) for others.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .deepgram:
+            SecureField("Deepgram API Key", text: $settings.deepgramApiKey)
+            Text("Nova-3 covers ~36 languages with diarization + sentiment in one sync call.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .groq, .openai:
+            SecureField("\(settings.remoteProvider.shortName) API Key", text: $settings.remoteApiKey)
+        }
+    }
+
     @ViewBuilder
     private func apiKeysSection(settings: SettingsManager) -> some View {
         @Bindable var settings = settings
@@ -60,15 +89,7 @@ struct SettingsView: View {
             }
 
             if settings.defaultEngine == .remote {
-                SecureField(
-                    "\(settings.remoteProvider.shortName) API Key",
-                    text: $settings.remoteApiKey
-                )
-                if settings.remoteProvider.hasAnalytics {
-                    Text("\(settings.remoteProvider.shortName) returns analytics (diarization, sentiment, etc.) the worker reads natively.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                remoteKeyFields(settings: settings)
             }
 
             if settings.defaultEngine != .remote && settings.llmProvider == .local {
