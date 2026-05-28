@@ -267,10 +267,17 @@ final class PythonBridge: @unchecked Sendable {
     ) async throws -> JobResult {
         try process.run()
 
-        // Write request to stdin, then close
-        stdinPipe.fileHandleForWriting.write(requestData)
-        stdinPipe.fileHandleForWriting.write(Data("\n".utf8))
-        stdinPipe.fileHandleForWriting.closeFile()
+        // Write the request to stdin, then close. Use the throwing Swift API
+        // (`write(contentsOf:)`) — the non-throwing `write(_:)` raises an
+        // `NSFileHandleOperationException` on a broken pipe, which Swift
+        // `try/catch` cannot catch and which would abort the whole app.
+        do {
+            try stdinPipe.fileHandleForWriting.write(contentsOf: requestData)
+            try stdinPipe.fileHandleForWriting.write(contentsOf: Data("\n".utf8))
+        } catch {
+            throw BridgeError.stdinWriteFailed
+        }
+        try? stdinPipe.fileHandleForWriting.close()
 
         // Read stderr progress updates asynchronously
         let stderrHandle = stderrPipe.fileHandleForReading
@@ -413,8 +420,18 @@ final class PythonBridge: @unchecked Sendable {
         while !Task.isCancelled && process.isRunning {
             try? await Task.sleep(for: .seconds(Self.heartbeatIntervalSeconds))
             guard process.isRunning else { break }
-            handle.write(pingData)
-            handle.write(Data("\n".utf8))
+            // Use the throwing Swift API. `write(_:)` on a closed pipe (the
+            // worker exited, or stdin was closed after sending the request)
+            // raises an uncatchable `NSFileHandleOperationException` and
+            // aborts the whole app — this is the SIGABRT seen in 26.5 crash
+            // logs for any job exceeding `heartbeatIntervalSeconds`.
+            do {
+                try handle.write(contentsOf: pingData)
+                try handle.write(contentsOf: Data("\n".utf8))
+            } catch {
+                // Broken pipe -> worker is unreachable; stop pinging quietly.
+                break
+            }
         }
     }
 
