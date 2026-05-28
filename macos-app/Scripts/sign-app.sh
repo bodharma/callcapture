@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Ad-hoc-sign the built .app bundle with the entitlements needed for mic /
+# system-audio capture. Run after every rebuild that touches the executable —
+# changing the binary invalidates the signature, and TCC permission grants
+# follow the code-signing hash.
+#
+# Usage:
+#   ./Scripts/sign-app.sh                                 # signs .build/CallCapture.app
+#   ./Scripts/sign-app.sh path/to/CallCapture.app         # signs an arbitrary bundle
+#
+# Notes:
+# - The entitlements file lives at Scripts/entitlements.plist so it's
+#   version-controlled and cannot disappear from the bundle output (an earlier
+#   build shipped Contents/entitlements.plist as decoration; codesign was never
+#   given --entitlements, so the signature carried only get-task-allow and the
+#   IOProc silently received zero frames).
+# - We use the ad-hoc identity (`--sign -`) plus `--options runtime` and
+#   `--generate-entitlement-der` so the entitlements + Info.plist are properly
+#   sealed. `--identifier com.callcapture.app` matches CFBundleIdentifier.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+APP_BUNDLE="${1:-$APP_DIR/.build/CallCapture.app}"
+ENTITLEMENTS="$SCRIPT_DIR/entitlements.plist"
+
+if [[ ! -d "$APP_BUNDLE" ]]; then
+    echo "error: app bundle not found at $APP_BUNDLE" >&2
+    echo "hint: run \`swift build\` first, then assemble the .app, then re-run this script." >&2
+    exit 1
+fi
+
+# An entitlements.plist sitting inside the bundle as Contents/entitlements.plist
+# would be treated by codesign as an unsigned subcomponent. Move it out so the
+# sign succeeds.
+if [[ -f "$APP_BUNDLE/Contents/entitlements.plist" ]]; then
+    rm "$APP_BUNDLE/Contents/entitlements.plist"
+fi
+
+codesign \
+    --force \
+    --sign - \
+    --entitlements "$ENTITLEMENTS" \
+    --identifier com.callcapture.app \
+    --options runtime \
+    --generate-entitlement-der \
+    "$APP_BUNDLE"
+
+echo
+echo "Signed $APP_BUNDLE"
+codesign -dvvv --entitlements - "$APP_BUNDLE" 2>&1 \
+    | grep -E 'Identifier|adhoc|Info.plist|Sealed|com.apple.security'
