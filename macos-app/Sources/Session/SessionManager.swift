@@ -259,6 +259,57 @@ final class SessionManager {
         }
     }
 
+    /// Permanently removes a session and every on-disk artefact tied to it.
+    ///
+    /// Removes the row, the audio file (plus `_mic.wav` / `_system.wav` stems
+    /// when present), the diarization sidecars, and the transcript / note /
+    /// analysis files tracked in the row. Best-effort: a missing file is not
+    /// an error. The in-memory `recentSessions` list is also pruned so the UI
+    /// updates immediately.
+    func deleteSession(id: String) {
+        do {
+            let record = try database.dbPool.read { db in
+                try SessionRecord.fetchOne(db, key: id)
+            }
+
+            if let record {
+                // Files tracked in the DB row.
+                for path in [
+                    record.audioPath,
+                    record.transcriptRawPath,
+                    record.transcriptMarkdownPath,
+                    record.analysisPath,
+                ].compactMap({ $0 }) where !path.isEmpty {
+                    try? FileManager.default.removeItem(atPath: path)
+                }
+
+                // Files derived from the audio path: stems + diarization sidecars.
+                let baseNoExt = (record.audioPath as NSString).deletingPathExtension
+                let siblings = [
+                    "_mic.wav",
+                    "_system.wav",
+                    "_diarization.json",
+                    "_system_diarization.json",
+                ]
+                for suffix in siblings {
+                    try? FileManager.default.removeItem(atPath: baseNoExt + suffix)
+                }
+            }
+
+            try database.dbPool.write { db in
+                _ = try SessionRecord.deleteOne(db, key: id)
+            }
+
+            recentSessions.removeAll { $0.id == id }
+            if currentSession?.id == id {
+                currentSession = nil
+            }
+            Self.logger.info("Session deleted with files: \(id)")
+        } catch {
+            Self.logger.error("Failed to delete session \(id): \(error)")
+        }
+    }
+
     /// Persists a corrected spoken language for a session.
     ///
     /// - Parameters:

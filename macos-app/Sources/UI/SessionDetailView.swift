@@ -8,10 +8,13 @@ struct SessionDetailView: View {
     @Environment(AppModel.self) private var appModel
     let session: Session
 
+    @Environment(\.dismiss) private var dismiss
+
     @State private var editableTitle: String = ""
     @State private var isTranscribing = false
     @State private var transcriptionError: String?
     @State private var saveMessage: String?
+    @State private var showDeleteConfirm = false
     /// Freshly-reloaded copy of the session, so transcript paths/status are
     /// current after transcription (the passed-in struct can be stale).
     @State private var liveSession: Session?
@@ -42,6 +45,19 @@ struct SessionDetailView: View {
         }
         .frame(minWidth: 380)
         .navigationTitle(session.title)
+        .confirmationDialog(
+            "Delete this session?",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Session and Files", role: .destructive) {
+                appModel.sessionManager.deleteSession(id: session.id)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("The audio, transcript, note, and analysis files will be permanently removed.")
+        }
         .onAppear {
             editableTitle = session.title
             reload()
@@ -229,11 +245,24 @@ struct SessionDetailView: View {
             if current.status == "transcribed" {
                 transcribeButton(label: "Re-process", engine: "local_whisper")
             }
+            // Failed / interrupted / dead-`transcribing` sessions also need a
+            // way out — until now they were stuck without any action button.
+            if ["error", "failed", "interrupted"].contains(current.status) {
+                transcribeButton(label: "Retry", engine: "local_whisper")
+            }
 
             if hasMarkdown {
                 Button("Save to Vault") { saveToConfiguredDirectory() }
                     .buttonStyle(.borderedProminent)
             }
+
+            Button(role: .destructive) {
+                showDeleteConfirm = true
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .buttonStyle(.bordered)
+            .disabled(isTranscribing || appModel.state == .transcribing)
 
             Menu("Export") {
                 Button("Markdown (.md)") { exportFile(extension: "md") }
