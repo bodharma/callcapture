@@ -79,7 +79,7 @@ struct JobRequest: Codable, Sendable {
             command: "transcribe",
             audioPath: session.audioPath,
             engine: settings.defaultEngine.rawValue,
-            language: "auto",
+            language: session.language,
             markdownProfile: settings.markdownProfile.rawValue,
             whisperModel: settings.whisperModel.rawValue,
             llmEngine: settings.llmEngine.rawValue,

@@ -105,6 +105,16 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v3_spokenLanguage") { db in
+            try db.alter(table: "session") { table in
+                // Whisper language code or "auto" for auto-detection. Older
+                // rows default to "auto" so they pick up the bug-fixed default.
+                table.add(column: "language", .text)
+                    .notNull()
+                    .defaults(to: "auto")
+            }
+        }
+
         return migrator
     }
 }

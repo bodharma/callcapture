@@ -14,6 +14,7 @@ struct Session: Codable, Identifiable, Sendable {
     var transcriptRawPath: String? = nil
     var transcriptMarkdownPath: String? = nil
     var recordingType: String = "call_meeting"
+    var language: String = "auto"
     var analysisPath: String? = nil
     var status: String
 
@@ -33,6 +34,7 @@ struct Session: Codable, Identifiable, Sendable {
         case transcriptRawPath = "transcript_raw_path"
         case transcriptMarkdownPath = "transcript_markdown_path"
         case recordingType = "recording_type"
+        case language
         case analysisPath = "analysis_path"
         case status
     }
@@ -257,6 +259,29 @@ final class SessionManager {
         }
     }
 
+    /// Persists a corrected spoken language for a session.
+    ///
+    /// - Parameters:
+    ///   - id: Session identifier.
+    ///   - language: Whisper language code (e.g. "uk", "en") or "auto".
+    func updateLanguage(id: String, language: String) {
+        do {
+            try database.dbPool.write { db in
+                guard var record = try SessionRecord.fetchOne(db, key: id) else {
+                    Self.logger.warning("Session not found for language update: \(id)")
+                    return
+                }
+                record.language = language
+                try record.update(db)
+            }
+            if let index = recentSessions.firstIndex(where: { $0.id == id }) {
+                recentSessions[index].language = language
+            }
+        } catch {
+            Self.logger.error("Failed to update language for \(id): \(error)")
+        }
+    }
+
     /// Persists a corrected recording type for a session.
     ///
     /// - Parameters:
@@ -304,21 +329,11 @@ final class SessionManager {
                 try record.update(db)
             }
 
-            // Keep the in-memory list in sync.
+            // Keep the in-memory list in sync (mutate in place so we preserve
+            // every other field — including transcript paths and language —
+            // and don't have to keep this rebuild in lockstep with the struct).
             if let index = recentSessions.firstIndex(where: { $0.id == id }) {
-                let existing = recentSessions[index]
-                recentSessions[index] = Session(
-                    id: existing.id,
-                    title: existing.title,
-                    sourceApp: existing.sourceApp,
-                    startedAt: existing.startedAt,
-                    endedAt: existing.endedAt,
-                    durationSec: existing.durationSec,
-                    audioPath: existing.audioPath,
-                    recordingType: existing.recordingType,
-                    analysisPath: existing.analysisPath,
-                    status: status
-                )
+                recentSessions[index].status = status
             }
 
             Self.logger.info("Session \(id) status updated to '\(status)'")
