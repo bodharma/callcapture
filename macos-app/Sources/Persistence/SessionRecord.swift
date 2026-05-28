@@ -19,6 +19,7 @@ struct SessionRecord: Codable, FetchableRecord, PersistableRecord, Identifiable 
     let audioPath: String
     var recordingType: String
     var language: String
+    var notesLanguage: String
     var analysisPath: String?
     var transcriptRawPath: String?
     var transcriptMarkdownPath: String?
@@ -37,6 +38,7 @@ struct SessionRecord: Codable, FetchableRecord, PersistableRecord, Identifiable 
         case audioPath = "audio_path"
         case recordingType = "recording_type"
         case language
+        case notesLanguage = "notes_language"
         case analysisPath = "analysis_path"
         case transcriptRawPath = "transcript_raw_path"
         case transcriptMarkdownPath = "transcript_markdown_path"
@@ -79,6 +81,7 @@ extension SessionRecord {
             transcriptMarkdownPath: transcriptMarkdownPath,
             recordingType: recordingType,
             language: language,
+            notesLanguage: notesLanguage,
             analysisPath: analysisPath,
             status: status
         )
@@ -97,6 +100,7 @@ extension SessionRecord {
         self.audioPath = session.audioPath
         self.recordingType = session.recordingType
         self.language = session.language
+        self.notesLanguage = session.notesLanguage
         self.analysisPath = session.analysisPath
         self.transcriptRawPath = session.transcriptRawPath
         self.transcriptMarkdownPath = session.transcriptMarkdownPath

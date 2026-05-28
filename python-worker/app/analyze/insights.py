@@ -11,6 +11,7 @@ from __future__ import annotations
 from app.postprocess.llm_client import LLMClient, LLMError
 from app.postprocess.llm_env import (
     format_speaker_tone_lines,
+    language_directive,
     resolve_llm_env,
     transcript_text,
     warn,
@@ -133,6 +134,7 @@ def analyze_insights(
     recording_type: str,
     sentiment: Sentiment | None = None,
     emotion: dict | None = None,
+    notes_language: str = "auto",
 ) -> Insights | None:
     """Produce type-tailored Insights from speaker-labeled segments via the LLM.
 
@@ -147,7 +149,7 @@ def analyze_insights(
         warn("no LLM_API_KEY for cloud endpoint, using fallback insights")
         return _fallback_insights(segments)
 
-    system = _PROMPTS.get(recording_type, _CALL_PROMPT)
+    system = language_directive(notes_language) + _PROMPTS.get(recording_type, _CALL_PROMPT)
     user = f"{_context_block(sentiment, emotion)}Transcript:\n\n{transcript_text(segments)}"
     try:
         client = LLMClient(api_key=env.api_key, model=env.model, base_url=env.base_url)

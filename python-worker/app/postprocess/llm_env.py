@@ -43,6 +43,41 @@ def warn(message: str) -> None:
     sys.stderr.flush()
 
 
+_LANGUAGE_NAMES: dict[str, str] = {
+    "en": "English",
+    "uk": "Ukrainian",
+    "ru": "Russian",
+    "pl": "Polish",
+    "de": "German",
+    "fr": "French",
+    "es": "Spanish",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "nl": "Dutch",
+    "cs": "Czech",
+    "sv": "Swedish",
+    "tr": "Turkish",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "zh": "Chinese",
+    "ar": "Arabic",
+    "hi": "Hindi",
+}
+
+
+def language_directive(notes_language: str | None) -> str:
+    """A short system-prompt prefix forcing the LLM to respond in a specific
+    language. Returns "" for `"auto"` / unknown / empty input (so the model
+    naturally follows the transcript's language)."""
+    if not notes_language or notes_language == "auto":
+        return ""
+    name = _LANGUAGE_NAMES.get(notes_language, notes_language)
+    return (
+        f"Respond ENTIRELY in {name}. Keep speakers' direct quotes in their "
+        "original language. Use natural, idiomatic phrasing.\n\n"
+    )
+
+
 def format_speaker_tone_lines(emotion: dict | None) -> list[str]:
     """Per-speaker acoustic-tone lines for an LLM prompt.
 

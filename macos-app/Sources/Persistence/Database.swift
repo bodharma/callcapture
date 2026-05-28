@@ -115,6 +115,17 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v4_notesLanguage") { db in
+            try db.alter(table: "session") { table in
+                // Output language for the LLM-generated note / sentiment /
+                // insights. "auto" lets the LLM follow the transcript language;
+                // an explicit code forces output into that language.
+                table.add(column: "notes_language", .text)
+                    .notNull()
+                    .defaults(to: "auto")
+            }
+        }
+
         return migrator
     }
 }

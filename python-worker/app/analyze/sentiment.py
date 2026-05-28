@@ -12,6 +12,7 @@ import math
 from app.postprocess.llm_client import LLMClient, LLMError
 from app.postprocess.llm_env import (
     format_speaker_tone_lines,
+    language_directive,
     resolve_llm_env,
     transcript_text,
     warn,
@@ -103,6 +104,7 @@ def analyze_sentiment(
     segments: list[TranscriptSegment],
     *,
     emotion: dict | None = None,  # acoustic-tone context; see _tone_block
+    notes_language: str = "auto",  # output language directive; "auto" = source
 ) -> Sentiment | None:
     """Judge conversation sentiment from speaker-labeled segments via the LLM.
 
@@ -121,7 +123,7 @@ def analyze_sentiment(
     try:
         client = LLMClient(api_key=env.api_key, model=env.model, base_url=env.base_url)
         data = client.complete_json(
-            system=_SYSTEM_PROMPT,
+            system=language_directive(notes_language) + _SYSTEM_PROMPT,
             user=f"{_tone_block(emotion)}Transcript:\n\n{transcript_text(segments)}",
         )
         return _build_sentiment(data, segments)

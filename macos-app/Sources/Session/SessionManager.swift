@@ -15,6 +15,7 @@ struct Session: Codable, Identifiable, Sendable {
     var transcriptMarkdownPath: String? = nil
     var recordingType: String = "call_meeting"
     var language: String = "auto"
+    var notesLanguage: String = "auto"
     var analysisPath: String? = nil
     var status: String
 
@@ -35,6 +36,7 @@ struct Session: Codable, Identifiable, Sendable {
         case transcriptMarkdownPath = "transcript_markdown_path"
         case recordingType = "recording_type"
         case language
+        case notesLanguage = "notes_language"
         case analysisPath = "analysis_path"
         case status
     }
@@ -307,6 +309,31 @@ final class SessionManager {
             Self.logger.info("Session deleted with files: \(id)")
         } catch {
             Self.logger.error("Failed to delete session \(id): \(error)")
+        }
+    }
+
+    /// Persists the chosen output language for the LLM-generated note,
+    /// sentiment, and insights.
+    ///
+    /// - Parameters:
+    ///   - id: Session identifier.
+    ///   - language: Whisper-style language code (e.g. "uk", "en") or "auto"
+    ///     to let the LLM follow the source transcript's language.
+    func updateNotesLanguage(id: String, language: String) {
+        do {
+            try database.dbPool.write { db in
+                guard var record = try SessionRecord.fetchOne(db, key: id) else {
+                    Self.logger.warning("Session not found for notes-language update: \(id)")
+                    return
+                }
+                record.notesLanguage = language
+                try record.update(db)
+            }
+            if let index = recentSessions.firstIndex(where: { $0.id == id }) {
+                recentSessions[index].notesLanguage = language
+            }
+        } catch {
+            Self.logger.error("Failed to update notes language for \(id): \(error)")
         }
     }
 

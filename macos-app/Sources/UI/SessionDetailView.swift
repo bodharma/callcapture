@@ -134,6 +134,28 @@ struct SessionDetailView: View {
                     .pickerStyle(.menu)
                     .fixedSize()
                 }
+                GridRow {
+                    Text("Notes language")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Picker("", selection: Binding(
+                        get: { SpokenLanguage(rawValue: current.notesLanguage) ?? .auto },
+                        set: { newLang in
+                            appModel.sessionManager.updateNotesLanguage(
+                                id: session.id,
+                                language: newLang.rawValue
+                            )
+                            reload()
+                        }
+                    )) {
+                        ForEach(SpokenLanguage.allCases) { lang in
+                            Text(lang.displayName).tag(lang)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                }
                 detailRow("Source App", session.sourceApp)
                 detailRow("Started", session.startedAt.formatted(date: .abbreviated, time: .standard))
                 if let endedAt = session.endedAt {

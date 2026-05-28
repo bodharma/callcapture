@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from app.postprocess.llm_client import LLMClient, LLMError
-from app.postprocess.llm_env import resolve_llm_env, transcript_text, warn
+from app.postprocess.llm_env import (
+    language_directive,
+    resolve_llm_env,
+    transcript_text,
+    warn,
+)
 from app.schemas.models import MarkdownNote, TranscriptSegment
 
 _SYSTEM_PROMPT = (
@@ -35,6 +40,7 @@ def _fallback_extraction(
 def generate_markdown(
     segments: list[TranscriptSegment],
     profile: str = "meeting_notes",
+    notes_language: str = "auto",
 ) -> MarkdownNote:
     """Generate a structured MarkdownNote from transcript segments via the LLM.
 
@@ -54,7 +60,7 @@ def generate_markdown(
     try:
         client = LLMClient(api_key=env.api_key, model=env.model, base_url=env.base_url)
         data = client.complete_json(
-            system=_SYSTEM_PROMPT,
+            system=language_directive(notes_language) + _SYSTEM_PROMPT,
             user=f"Transcript:\n\n{transcript_text(segments, timestamps=True)}",
         )
         return MarkdownNote(

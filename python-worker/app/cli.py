@@ -158,7 +158,11 @@ def _run_pipeline(request: JobRequest) -> JobResult:
         label: {"valence": e.valence, "arousal": e.arousal, "dominant_emotion": e.dominant_emotion}
         for label, e in emotion.items()
     }
-    sentiment = analyze_sentiment(segments, emotion=emotion_summary or None)
+    sentiment = analyze_sentiment(
+        segments,
+        emotion=emotion_summary or None,
+        notes_language=request.notes_language,
+    )
     if sentiment is not None and arc:
         sentiment = sentiment.model_copy(update={"arc": arc})
 
@@ -167,6 +171,7 @@ def _run_pipeline(request: JobRequest) -> JobResult:
         recording_type=request.recording_type,
         sentiment=sentiment,
         emotion=emotion_summary or None,
+        notes_language=request.notes_language,
     )
     speakers = _build_speakers(segments, emotion)
     analysis_path = _write_analysis(
@@ -272,7 +277,11 @@ def postprocess() -> None:
             seg_data = json.load(f)
         segments = [TranscriptSegment.model_validate(s) for s in seg_data]
 
-        note = generate_markdown(segments, request.markdown_profile)
+        note = generate_markdown(
+            segments,
+            request.markdown_profile,
+            notes_language=request.notes_language,
+        )
         rendered = render_markdown(note, request.markdown_profile)
         md_path = os.path.splitext(request.audio_path)[0] + "_notes.md"
         write_markdown(rendered, md_path)
