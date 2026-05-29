@@ -64,8 +64,8 @@ release published (tag v*)  ─►  GitHub Actions  (runs-on: macos-15)
 ### 4.1 Worker packaging (PyInstaller)
 
 - `python-worker/packaging/worker_entry.py` — thin entry: `from app.cli import main; main()`.
-- `python-worker/packaging/callcapture-worker.spec` — PyInstaller spec producing
-  a **one-folder** build (`dist/callcapture-worker/`) named `callcapture-worker`.
+- `python-worker/packaging/call-capture-worker.spec` — PyInstaller spec producing
+  a **one-folder** build (`dist/call-capture-worker/`) named `call-capture-worker`.
   One-folder is preferred over one-file: faster startup, and every nested `.so`
   is a real file we can codesign individually.
 - Bundled dependencies (all pip wheels, PyInstaller-friendly):
@@ -79,7 +79,7 @@ release published (tag v*)  ─►  GitHub Actions  (runs-on: macos-15)
   ~1 GB, opt-in) — only the runtime libraries are bundled.
 - **Excluded:** `pywhispercpp` (and its whisper.cpp native libs) — see §2.
 
-The packaged worker must expose the identical CLI contract: `callcapture-worker
+The packaged worker must expose the identical CLI contract: `call-capture-worker
 transcribe` reading a `JobRequest` JSON on stdin and emitting `ProgressUpdate`
 (stderr) + `JobResult` (stdout), plus the existing ping handling.
 
@@ -87,7 +87,7 @@ transcribe` reading a `JobRequest` JSON on stdin and emitting `ProgressUpdate`
 
 `PythonBridge` resolution gains a **bundled-worker mode**, checked first:
 
-1. **Bundled:** if `Bundle.main/Contents/Resources/worker/callcapture-worker`
+1. **Bundled:** if `Bundle.main/Contents/Resources/worker/call-capture-worker`
    exists and is executable → run it directly (`<worker> transcribe`), no
    `python3`. This is the path for distributed apps.
 2. **Dev:** existing `CALLCAPTURE_WORKER_DIR` / sibling `python-worker` + system
@@ -101,7 +101,7 @@ then appends `command` + streams stdin/stdout the same way for both.
 ### 4.3 Bundle assembly script
 
 `macos-app/Scripts/assemble-app.sh`:
-- Inputs: build config (release), path to the PyInstaller `dist/callcapture-worker`.
+- Inputs: build config (release), path to the PyInstaller `dist/call-capture-worker`.
 - Creates `CallCapture.app/Contents/{MacOS,Resources,Info.plist}`.
 - Copies the Swift release binary → `MacOS/CallCapture`.
 - Copies the PyInstaller output → `Resources/worker/`.
@@ -114,7 +114,7 @@ for local dev).
 
 ### 4.4 Signing + notarization
 
-- **Order:** sign inner→out — every `.so`/`.dylib` and the `callcapture-worker`
+- **Order:** sign inner→out — every `.so`/`.dylib` and the `call-capture-worker`
   binary first, then the outer `CallCapture.app`. Avoid `--deep` (deprecated and
   unreliable for this); iterate nested Mach-O explicitly in the signing script.
 - **Flags:** `--force --options runtime --timestamp --entitlements <file>
