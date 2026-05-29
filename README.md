@@ -24,6 +24,16 @@ Hosted meeting recorders join your call as a visible bot and upload everything t
 - 🗒️ **Markdown notes** — meeting-notes / transcript / Obsidian export profiles, with one-click "Save to Vault."
 - 🪶 **Menu-bar app** — lightweight, stays out of the way.
 
+## Screenshots
+
+**Session detail** — transcript with speaker attribution (*You* / *Speaker 1*), the generated Markdown note, and conversation insights (sentiment per speaker, emotional arc, recommended actions, action items):
+
+![CallCapture session detail with conversation insights](docs/images/session-insights.png)
+
+**Settings** — pick a transcription engine (on-device Whisper or cloud), per-language provider routing, LLM post-processing, on-device diarization & emotion models, and export to an Obsidian vault:
+
+![CallCapture Settings](docs/images/settings.png)
+
 ## Architecture
 
 CallCapture is two cooperating pieces:
