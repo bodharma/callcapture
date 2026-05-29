@@ -2,7 +2,9 @@
 
 **Date:** 2026-05-29
 **Status:** Approved (design), pending implementation plan
-**Scope:** Produce a notarized, download-and-run macOS `.app` (with the Python worker bundled) and attach it as a DMG to GitHub Releases via CI.
+**Scope:** Produce a notarized, download-and-run macOS `.app` (with the Python worker bundled), publish it as a notarized **zip** on GitHub Releases via CI, and install it through a **Homebrew cask** in a self-owned tap.
+
+> **Revision 2026-05-29:** distribution pivoted from DMG to **Homebrew cask (own tap) + a notarized zip artifact**. Signing/notarization is unchanged (Homebrew quarantines by default, so notarization is still required). DMG is dropped.
 
 ---
 
@@ -26,7 +28,8 @@ To get there we must solve three things the project does not currently have:
 
 - **Notarized Developer ID** distribution (Gatekeeper-clean), not ad-hoc.
 - **Self-contained worker** via PyInstaller (no user Python).
-- **DMG** release asset.
+- **Zip** release asset (notarized + stapled `.app`, zipped with `ditto`).
+- **Homebrew cask in an own tap** (`bodharma/homebrew-callcapture` → `brew install --cask bodharma/callcapture/callcapture`). CI auto-bumps the cask `version` + `sha256` on each release. Official homebrew-cask submission is deferred until the project is notable.
 - **Local Whisper (`pywhispercpp`) is deferred from the binary for v1.** Its
   native whisper.cpp libraries complicate notarization. The shipped app supports
   **remote engines (AssemblyAI / Deepgram) + full analysis** (sentiment,
@@ -40,16 +43,18 @@ To get there we must solve three things the project does not currently have:
 
 ```
 release published (tag v*)  ─►  GitHub Actions  (runs-on: macos-15)
-  1. PyInstaller        → dist/callcapture-worker            (standalone, no system Python)
+  1. PyInstaller        → dist/call-capture-worker           (standalone, no system Python)
   2. swift build -c release --product CallCapture            → release binary
   3. Scripts/assemble-app.sh → CallCapture.app
         Contents/MacOS/CallCapture                           (Swift)
-        Contents/Resources/worker/callcapture-worker         (+ PyInstaller payload)
+        Contents/Resources/worker/call-capture-worker        (+ PyInstaller payload)
         Contents/Info.plist
   4. codesign inner→out (Developer ID, hardened runtime, entitlements, --timestamp)
-  5. hdiutil/create-dmg → CallCapture-<version>.dmg
-  6. notarytool submit --wait  →  stapler staple
-  7. gh release upload <tag> CallCapture-<version>.dmg
+  5. ditto -c -k --keepParent CallCapture.app submit.zip      (zip for notary submission)
+  6. notarytool submit submit.zip --wait → stapler staple CallCapture.app
+  7. ditto -c -k --keepParent CallCapture.app CallCapture-<version>.zip   (distributable, stapled)
+  8. gh release upload <tag> CallCapture-<version>.zip
+  9. bump the cask (version + sha256) in the tap repo bodharma/homebrew-callcapture
 ```
 
 ---
@@ -125,11 +130,31 @@ for local dev).
   an **App Store Connect API key** (`.p8` + key id + issuer id) — no app-specific
   password. Then `xcrun stapler staple` the DMG.
 
-### 4.5 DMG
+### 4.5 Zip artifact + Homebrew cask
 
-- Built with `hdiutil` (or `create-dmg` if available) containing
-  `CallCapture.app` + an `/Applications` symlink for drag-install.
-- Named `CallCapture-<version>.dmg` (version from the release tag).
+**Zip:** `Scripts/make-zip.sh` runs `ditto -c -k --keepParent CallCapture.app
+CallCapture-<version>.zip`. Notarization order matters: submit a zip → staple
+the **`.app`** (you cannot staple a zip) → re-zip the stapled app as the
+distributable. `notarize.sh` therefore takes the `.app` + version and emits the
+final stapled zip.
+
+**Cask + tap:** a separate public repo `bodharma/homebrew-callcapture` holds
+`Casks/callcapture.rb`:
+```ruby
+cask "callcapture" do
+  version "0.2.0"
+  sha256 "<sha256 of the release zip>"
+  url "https://github.com/bodharma/callcapture/releases/download/v#{version}/CallCapture-#{version}.zip"
+  name "CallCapture"
+  desc "Private, local-first call & meeting recording for macOS"
+  homepage "https://github.com/bodharma/callcapture"
+  depends_on macos: ">= :sonoma"   # macOS 14+
+  app "CallCapture.app"
+end
+```
+Users install with `brew tap bodharma/callcapture && brew install --cask
+callcapture`. On each release, CI updates `version` + `sha256` in the tap repo
+(requires a PAT with write access to the tap — secret `HOMEBREW_TAP_TOKEN`).
 
 ### 4.6 Release CI (`.github/workflows/release.yml`)
 
@@ -138,15 +163,18 @@ for local dev).
 - **Runner:** `macos-15` (Xcode 16 / Swift 6, required by FluidAudio — same as
   the existing CI fix).
 - **Secret-gated signing:** a guard step checks whether signing secrets are
-  present. If **absent** (forks, PRs, contributors): build the `.app` + DMG
-  **unsigned/ad-hoc** and **skip** import-cert/notarize/staple — the workflow
-  still succeeds and produces a testable artifact. If **present**: full Developer
-  ID + notarize + staple.
+  present. If **absent** (forks, PRs, contributors): build the `.app` + zip
+  **unsigned/ad-hoc** and **skip** import-cert/notarize/staple/cask-bump — the
+  workflow still succeeds and produces a testable artifact. If **present**: full
+  Developer ID + notarize + staple + cask bump.
 - Steps: setup-python → PyInstaller build → setup Swift/Xcode → swift build →
-  assemble-app → [import cert to temp keychain] → codesign → make DMG →
-  [notarize + staple] → `gh release upload`.
+  assemble-app → [import cert to temp keychain] → codesign → make zip →
+  [notarize + staple + re-zip] → `gh release upload <zip>` → [bump cask in tap].
 - Keychain hygiene: create a temporary keychain, import the `.p12`, and delete it
   in an `always()` cleanup step.
+- **Cask bump:** a final step (signed path only) clones the tap repo using
+  `HOMEBREW_TAP_TOKEN`, rewrites `version` + `sha256` in `Casks/callcapture.rb`,
+  and pushes.
 
 ---
 
@@ -164,6 +192,8 @@ Cannot be automated; the user must create these once:
    - `AC_API_KEY_ID`
    - `AC_API_ISSUER_ID`
    - `APPLE_TEAM_ID` — e.g. `R72GTBB9MG`
+   - `HOMEBREW_TAP_TOKEN` — a fine-grained PAT with `contents:write` on the
+     `bodharma/homebrew-callcapture` tap repo (for the CI cask bump)
 
 The implementation plan will include a short `docs/RELEASING.md` documenting how
 to obtain each and cut a release.
@@ -177,11 +207,13 @@ to obtain each and cut a release.
   test, `assemble-app.sh`, `build-app.sh` update. **Exit criteria:** an ad-hoc
   signed `CallCapture.app` built locally transcribes a sample via a **remote**
   engine with **no** `python-worker/` source and **no** dev `python3` on PATH.
-- **Phase 2 — notarized release pipeline:**
-  Entitlements update, inner→out signing script, DMG packaging, notarization,
-  `release.yml`, `docs/RELEASING.md`. **Exit criteria:** a tagged release yields
-  a notarized, stapled DMG attached to the release that opens via double-click on
-  a clean Mac (`spctl -a -vvv` accepts it).
+- **Phase 2 — notarized release pipeline + Homebrew cask:**
+  Entitlements update, inner→out signing script, zip packaging, notarization,
+  `release.yml`, the tap repo + cask, `docs/RELEASING.md`. **Exit criteria:** a
+  tagged release yields a notarized, stapled zip attached to the release, the
+  cask in `bodharma/homebrew-callcapture` is bumped, and `brew install --cask
+  bodharma/callcapture/callcapture` installs an app that opens via double-click
+  on a clean Mac (`spctl -a -vvv` accepts the `.app`).
 
 Phase 1 proves the hard part (the bundled worker actually runs) before wiring
 Apple credentials.
@@ -192,7 +224,7 @@ Apple credentials.
 
 **Python / packaging:**
 - PyInstaller build succeeds in CI; smoke test the artifact:
-  `callcapture-worker --version` and a ping JSON on stdin return cleanly.
+  `call-capture-worker --version` and a ping JSON on stdin return cleanly.
 - A remote-engine job through the packaged worker (mocked HTTP) returns a valid
   `JobResult` — guards the CLI contract parity.
 
@@ -202,10 +234,11 @@ Apple credentials.
 - `assemble-app.sh` smoke test: produces the expected bundle layout.
 
 **Release pipeline:**
-- `workflow_dispatch` unsigned dry-run produces a DMG artifact (no secrets).
+- `workflow_dispatch` unsigned dry-run produces a zip artifact (no secrets).
 - Signed/notarized path verified manually once secrets exist:
   `spctl -a -vvv -t install CallCapture.app` → "accepted, source=Notarized
-  Developer ID"; `stapler validate` on the DMG.
+  Developer ID"; `stapler validate CallCapture.app`.
+- Cask lint: `brew style` / `brew audit --cask` on `Casks/callcapture.rb`.
 
 ---
 
