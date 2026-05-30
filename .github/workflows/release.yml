@@ -61,6 +61,14 @@ jobs:
             echo "signing=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Signing secrets absent — producing an UNSIGNED zip (not notarized)."
           fi
+          # Cask auto-bump only runs when a tap token is configured; otherwise
+          # the maintainer bumps the cask out of band.
+          if [ -n "${{ secrets.HOMEBREW_TAP_TOKEN }}" ]; then
+            echo "tap=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tap=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::HOMEBREW_TAP_TOKEN absent — skipping cask bump (bump it manually)."
+          fi
 
       - name: Import Developer ID certificate
         if: steps.secrets.outputs.signing == 'true'
@@ -121,7 +129,7 @@ jobs:
           path: macos-app/CallCapture-*.zip
 
       - name: Bump Homebrew cask
-        if: github.event_name == 'release' && steps.secrets.outputs.signing == 'true'
+        if: github.event_name == 'release' && steps.secrets.outputs.signing == 'true' && steps.secrets.outputs.tap == 'true'
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ steps.ver.outputs.version }}
