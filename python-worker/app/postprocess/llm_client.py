@@ -10,6 +10,53 @@ from openai import OpenAI
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class LLMUsage:
+    """Aggregated LLM usage for one worker job."""
+    total_tokens: int = 0
+    actual_cost: float | None = None  # summed OpenRouter cost, None if never reported
+
+
+# Module-level accumulator. The worker handles one job per process, so a module
+# global is safe; tests reset it explicitly.
+_TOKENS = 0
+_COST_SUM: float | None = None
+
+
+def reset_usage() -> None:
+    global _TOKENS, _COST_SUM
+    _TOKENS = 0
+    _COST_SUM = None
+
+
+def record_usage(tokens: int, cost: float | None) -> None:
+    global _TOKENS, _COST_SUM
+    _TOKENS += int(tokens or 0)
+    if cost is not None:
+        _COST_SUM = (_COST_SUM or 0.0) + float(cost)
+
+
+def get_usage() -> LLMUsage:
+    return LLMUsage(total_tokens=_TOKENS, actual_cost=_COST_SUM)
+
+
+def _extract_usage(resp: object) -> tuple[int, float | None]:
+    """Pull (total_tokens, cost) from an OpenAI-compatible response.
+
+    OpenRouter returns `usage.cost` when the request asked for it; other
+    endpoints omit it, so cost is None and the caller's fallback rate applies.
+    """
+    usage = getattr(resp, "usage", None)
+    if usage is None:
+        return 0, None
+    tokens = int(getattr(usage, "total_tokens", 0) or 0)
+    cost = getattr(usage, "cost", None)
+    return tokens, (float(cost) if cost is not None else None)
+
+
 class LLMError(Exception):
     """Raised when the LLM endpoint is misconfigured or returns bad output."""
 
@@ -46,7 +93,11 @@ class LLMClient:
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
+                # OpenRouter returns usage.cost when asked; ignored by others.
+                extra_body={"usage": {"include": True}},
             )
+            tokens, cost = _extract_usage(resp)
+            record_usage(tokens, cost)
             raw = resp.choices[0].message.content or ""
         except Exception as exc:  # noqa: BLE001 - surface as our error type
             raise LLMError(f"LLM request failed: {exc}") from exc
