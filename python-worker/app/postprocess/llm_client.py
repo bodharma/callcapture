@@ -74,6 +74,10 @@ class LLMClient:
         self, api_key: str, model: str, base_url: str = OPENROUTER_BASE_URL
     ) -> None:
         self.model = model
+        # Only OpenRouter understands the usage-cost request; sending it to a
+        # strict local server (Ollama/llama.cpp) could 400 and silently degrade
+        # post-processing, so gate it on the endpoint.
+        self._is_openrouter = "openrouter.ai" in base_url
         # OpenAI SDK requires a non-empty key string; local servers ignore it.
         self._client = OpenAI(api_key=api_key or "none", base_url=base_url)
 
@@ -85,6 +89,8 @@ class LLMClient:
         Raises:
             LLMError: on API failure or unparseable JSON.
         """
+        # OpenRouter returns usage.cost when asked; only request it there.
+        extra_body = {"usage": {"include": True}} if self._is_openrouter else {}
         try:
             resp = self._client.chat.completions.create(
                 model=self.model,
@@ -93,8 +99,7 @@ class LLMClient:
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                # OpenRouter returns usage.cost when asked; ignored by others.
-                extra_body={"usage": {"include": True}},
+                extra_body=extra_body,
             )
             tokens, cost = _extract_usage(resp)
             record_usage(tokens, cost)
