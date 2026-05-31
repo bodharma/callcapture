@@ -247,6 +247,40 @@ final class SessionManager {
         }
     }
 
+    /// Persists the per-session USD cost breakdown returned by the worker.
+    ///
+    /// - Parameters:
+    ///   - id: Session identifier.
+    ///   - costTranscription: USD cost of speech-to-text, or `nil` if unknown.
+    ///   - costProcessing: USD cost of LLM post-processing, or `nil` if unknown.
+    ///   - costCurrency: ISO currency code reported by the worker (e.g. "USD").
+    func updateSessionCost(
+        id: String,
+        costTranscription: Double?,
+        costProcessing: Double?,
+        costCurrency: String?
+    ) {
+        do {
+            try database.dbPool.write { db in
+                guard var record = try SessionRecord.fetchOne(db, key: id) else {
+                    Self.logger.warning("Session not found for cost update: \(id)")
+                    return
+                }
+                record.costTranscription = costTranscription
+                record.costProcessing = costProcessing
+                record.costCurrency = costCurrency
+                try record.update(db)
+            }
+            if let index = recentSessions.firstIndex(where: { $0.id == id }) {
+                recentSessions[index].costTranscription = costTranscription
+                recentSessions[index].costProcessing = costProcessing
+                recentSessions[index].costCurrency = costCurrency
+            }
+        } catch {
+            Self.logger.error("Failed to update session cost for \(id): \(error)")
+        }
+    }
+
     /// Persists the analysis JSON path for a session.
     ///
     /// - Parameters:
