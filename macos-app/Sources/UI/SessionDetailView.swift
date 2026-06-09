@@ -284,15 +284,15 @@ struct SessionDetailView: View {
             Spacer()
 
             if current.status == "completed" {
-                transcribeButton(label: "Transcribe", engine: "local_whisper")
+                transcribeButton(label: "Transcribe")
             }
             if current.status == "transcribed" {
-                transcribeButton(label: "Re-process", engine: "local_whisper")
+                transcribeButton(label: "Re-process")
             }
             // Failed / interrupted / dead-`transcribing` sessions also need a
             // way out — until now they were stuck without any action button.
             if ["error", "failed", "interrupted"].contains(current.status) {
-                transcribeButton(label: "Retry", engine: "local_whisper")
+                transcribeButton(label: "Retry")
             }
 
             if hasMarkdown {
@@ -321,7 +321,7 @@ struct SessionDetailView: View {
 
     // MARK: - Actions
 
-    private func transcribeButton(label: String, engine: String) -> some View {
+    private func transcribeButton(label: String) -> some View {
         Button(label) {
             Task { await transcribe() }
         }

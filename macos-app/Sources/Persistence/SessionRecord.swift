@@ -89,6 +89,7 @@ extension SessionRecord {
             language: language,
             notesLanguage: notesLanguage,
             analysisPath: analysisPath,
+            engineUsed: engineUsed,
             costTranscription: costTranscription,
             costProcessing: costProcessing,
             costCurrency: costCurrency,
@@ -113,7 +114,7 @@ extension SessionRecord {
         self.analysisPath = session.analysisPath
         self.transcriptRawPath = session.transcriptRawPath
         self.transcriptMarkdownPath = session.transcriptMarkdownPath
-        self.engineUsed = nil
+        self.engineUsed = session.engineUsed
         self.status = session.status
         self.errorMessage = nil
         self.costTranscription = session.costTranscription

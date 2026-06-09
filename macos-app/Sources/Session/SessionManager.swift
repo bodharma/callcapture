@@ -17,6 +17,7 @@ struct Session: Codable, Identifiable, Sendable {
     var language: String = "auto"
     var notesLanguage: String = "auto"
     var analysisPath: String? = nil
+    var engineUsed: String? = nil
     var costTranscription: Double? = nil
     var costProcessing: Double? = nil
     var costCurrency: String? = nil
@@ -41,6 +42,7 @@ struct Session: Codable, Identifiable, Sendable {
         case language
         case notesLanguage = "notes_language"
         case analysisPath = "analysis_path"
+        case engineUsed = "engine_used"
         case costTranscription = "cost_transcription"
         case costProcessing = "cost_processing"
         case costCurrency = "cost_currency"

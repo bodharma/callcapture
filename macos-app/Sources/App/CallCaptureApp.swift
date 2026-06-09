@@ -203,7 +203,7 @@ final class AppModel {
         // For the `.auto` provider we resolve to AssemblyAI or Deepgram based
         // on the session's spoken language AND ship both keys so the worker
         // can use whichever it ends up routing through.
-        if settingsManager.defaultEngine == .remote {
+        if request.engine == TranscriptionEngine.remote.rawValue {
             switch settingsManager.remoteProvider {
             case .auto:
                 if !settingsManager.assemblyAIApiKey.isEmpty {
