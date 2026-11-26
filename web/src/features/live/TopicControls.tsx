@@ -72,7 +72,7 @@ export function TopicControls({ topic, topics, target }: TopicControlsProps) {
         <button
           type="button"
           className="btn btn--small"
-          disabled={move.isPending}
+          disabled={parent === (topic.parentID ?? "") || move.isPending}
           onClick={() => move.mutate({ path: `${base}/move`, body: { parentID: parent === "" ? null : parent } })}
         >
           Move

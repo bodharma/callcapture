@@ -134,6 +134,7 @@ export function FullLive({ view, target, online }: FullLiveProps) {
           topics={view.topics}
           selectedID={selectedID}
           currentID={view.currentTopicID}
+          live={view.active}
           onSelect={(id) =>
             saved ? setPageSelection(id) : select.mutate({ path: `topics/${seg(id)}/select` })
           }

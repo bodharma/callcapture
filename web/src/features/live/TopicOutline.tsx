@@ -4,11 +4,13 @@ interface TopicOutlineProps {
   topics: LiveTopic[];
   selectedID?: string;
   currentID?: string;
+  /** False for a saved map: its current topic is where the meeting ended, not "live now". */
+  live: boolean;
   onSelect: (id: string) => void;
 }
 
 /** The topic tree: branches in map order, the selected topic marked, the live one tagged. */
-export function TopicOutline({ topics, selectedID, currentID, onSelect }: TopicOutlineProps) {
+export function TopicOutline({ topics, selectedID, currentID, live, onSelect }: TopicOutlineProps) {
   const known = new Set(topics.map((topic) => topic.id));
   // A topic whose parent is gone still shows, at the top level.
   const roots = topics.filter((topic) => topic.parentID === undefined || !known.has(topic.parentID));
@@ -31,7 +33,12 @@ export function TopicOutline({ topics, selectedID, currentID, onSelect }: TopicO
               </span>
               <span className="outline-title">{topic.title}</span>
               {topic.pinned && <span className="outline-tag">pinned</span>}
-              {topic.id === currentID && <span className="outline-tag outline-tag--live">live now</span>}
+              {topic.id === currentID &&
+                (live ? (
+                  <span className="outline-tag outline-tag--live">live now</span>
+                ) : (
+                  <span className="outline-tag">ended here</span>
+                ))}
             </button>
             {children.length > 0 && branch(children, depth + 1, new Set([...seen, topic.id]))}
           </li>
