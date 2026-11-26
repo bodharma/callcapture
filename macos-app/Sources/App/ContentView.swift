@@ -89,12 +89,21 @@ struct ContentView: View {
                 Button(appModel.liveMeeting.isPreparing ? "Downloading model…" : "Download live model") {
                     appModel.liveMeeting.prepareModel(bridge: appModel.pythonBridge,
                                                      modelName: appModel.settingsManager.whisperModel.rawValue)
-                }.disabled(appModel.liveMeeting.isPreparing)
+                }.disabled(appModel.liveMeeting.isPreparing || !appModel.connectivity.isOnline)
+                if !appModel.connectivity.isOnline && !appModel.liveMeeting.isPreparing {
+                    Text("Offline — downloading a model needs internet. A downloaded model works offline.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
                 if appModel.liveMeeting.isPreparing {
                     Button("Cancel download") { appModel.liveMeeting.cancel() }
                 }
+                let memosOffline = appModel.settingsManager.llmProvider == .openrouter && !appModel.connectivity.isOnline
                 Toggle("Automatic memos", isOn: $appModel.automaticLiveMemos).toggleStyle(.checkbox)
-                if appModel.automaticLiveMemos {
+                    .disabled(memosOffline)
+                if memosOffline {
+                    Text("Offline — automatic memos need internet. Local transcript and manual notes work offline.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                } else if appModel.automaticLiveMemos {
                     Text(appModel.settingsManager.llmProvider == .openrouter
                          ? "Committed transcript goes to OpenRouter · \(appModel.settingsManager.model(for: .live)). No speech is uploaded."
                          : "Committed transcript goes to the configured LLM server · \(appModel.settingsManager.model(for: .live)).")
@@ -166,6 +175,19 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
+        if let notice = appModel.notice, appModel.state == .idle {
+            Label(notice, systemImage: "wifi.slash")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        if !appModel.connectivity.isOnline, appModel.settingsManager.defaultEngine == .remote {
+            Text("Offline — cloud transcription will wait; recording works.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
 
         if let error = appModel.lastError, appModel.state == .error {

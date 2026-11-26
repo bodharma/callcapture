@@ -94,6 +94,9 @@ final class AppModel {
     var playbackBlocked = false
     private(set) var recordingTransitionInProgress = false
     let liveMeeting = LiveMeetingController()
+    let connectivity = ConnectivityMonitor()
+    /// A non-error note for the menu, e.g. a recording kept until cloud transcription can run.
+    var notice: String?
     let modelCatalog = ModelCatalogService(cacheURL: AppModel.catalogCacheURL)
     /// Last known OpenRouter catalog (cached or freshly fetched); nil before the first fetch.
     var catalogSnapshot: ModelCatalogSnapshot?
@@ -267,18 +270,26 @@ final class AppModel {
     ///
     /// - Parameter session: The session to transcribe.
     func transcribeSession(_ session: Session) async {
+        let request = JobRequest.transcribe(
+            session: session,
+            settings: settingsManager
+        )
+        let decision = NetworkPolicy.decision(engine: request.engine, provider: settingsManager.llmProvider,
+                                              isOnline: await connectivity.isOnline)
+        if case .wait(let message) = decision {
+            state = .error
+            lastError = message
+            return
+        }
+
         state = .transcribing
         lastError = nil
+        notice = nil
         Self.logger.info("Transcription started for session \(session.id)")
 
         sessionManager.updateSessionStatus(
             id: session.id,
             status: "transcribing"
-        )
-
-        let request = JobRequest.transcribe(
-            session: session,
-            settings: settingsManager
         )
 
         let llmBaseURL: String
@@ -296,6 +307,8 @@ final class AppModel {
             "LLM_MODEL": settingsManager.model(for: .final),
             "LLM_API_KEY": llmKey,
         ]
+        // Offline with OpenRouter notes: the worker skips the LLM and says so in warnings.
+        llmEnv.merge(decision.workerEnvironment) { _, new in new }
         // Remote transcription providers read a provider-specific key from env.
         // For the `.auto` provider we resolve to AssemblyAI or Deepgram based
         // on the session's spoken language AND ship both keys so the worker
@@ -414,6 +427,7 @@ final class AppModel {
     }
 
     @MainActor private func startRecording() async {
+        notice = nil
         do {
             // Serialize the device snapshot with HAL notifications and picker changes.
             let (output, mic) = try await MainActor.run {
@@ -452,13 +466,17 @@ final class AppModel {
                 let key = provider == .openrouter ? settingsManager.openRouterApiKey : "ollama"
                 let configuredURL = URL(string: baseURL)
                 let url = configuredURL ?? URL(string: "http://127.0.0.1:11434/v1")!
+                let memosOffline = automaticLiveMemos && provider == .openrouter && !connectivity.isOnline
                 liveMeeting.start(session: session, bridge: pythonBridge,
                     modelName: settingsManager.whisperModel.rawValue,
                     speechLanguage: selectedSpeechLanguage.rawValue,
                     notesLanguage: selectedNotesLanguage.rawValue,
-                    configuration: LiveNotesConfiguration(enabled: automaticLiveMemos && configuredURL != nil, baseURL: url,
+                    configuration: LiveNotesConfiguration(enabled: automaticLiveMemos && !memosOffline && configuredURL != nil, baseURL: url,
                                                           apiKey: automaticLiveMemos ? key : "", model: settingsManager.model(for: .live),
                                                           listedModelIDs: provider == .openrouter ? catalogSnapshot.map { Set($0.models.map(\.id)) } : nil))
+                if memosOffline {
+                    liveMeeting.model.markGap("Automatic notes off: offline. Local transcript and manual notes continue.")
+                }
                 if automaticLiveMemos && configuredURL == nil {
                     liveMeeting.model.markGap("Invalid memo provider URL; local speech and manual notes continue. Fix the provider in Settings before the next meeting.")
                 }
@@ -510,7 +528,14 @@ final class AppModel {
 
             Self.logger.info("Recording stopped for session \(session.id)")
 
-            if settingsManager.autoProcessOnStop {
+            let autoEngine = JobRequest.transcribe(session: finalized, settings: settingsManager).engine
+            if settingsManager.autoProcessOnStop,
+               case .wait(let message) = NetworkPolicy.decision(engine: autoEngine, provider: settingsManager.llmProvider,
+                                                                isOnline: connectivity.isOnline) {
+                // Keep the recording; nothing is sent until the user transcribes.
+                notice = message
+                state = .idle
+            } else if settingsManager.autoProcessOnStop {
                 Self.logger.info(
                     "Auto-transcription enabled, starting transcription"
                 )

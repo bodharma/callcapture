@@ -87,6 +87,11 @@ struct SettingsView: View {
             if settings.llmProvider == .openrouter {
                 SecureField("OpenRouter API Key", text: $settings.openRouterApiKey)
                 OpenRouterTestRow(apiKey: settings.openRouterApiKey)
+                    .disabled(!appModel.connectivity.isOnline)
+                if !appModel.connectivity.isOnline {
+                    Text("Offline — testing the key needs internet.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
 
             if settings.defaultEngine == .remote {
@@ -113,11 +118,12 @@ struct SettingsView: View {
 
             if settings.llmProvider == .openrouter {
                 ModelPickerView(role: .final, selection: $settings.llmModel, snapshot: appModel.catalogSnapshot,
-                                isOnline: true, refresh: refreshCatalog)
+                                isOnline: appModel.connectivity.isOnline, refresh: refreshCatalog)
                 ModelPickerView(role: .live, selection: $settings.liveLLMModel, snapshot: appModel.catalogSnapshot,
-                                isOnline: true, refresh: refreshCatalog)
+                                isOnline: appModel.connectivity.isOnline, refresh: refreshCatalog)
                 ModelCatalogStatusRow(snapshot: appModel.catalogSnapshot, problem: appModel.catalogProblem,
-                                      refreshing: appModel.catalogRefreshing, isOnline: true, refresh: refreshCatalog)
+                                      refreshing: appModel.catalogRefreshing, isOnline: appModel.connectivity.isOnline,
+                                      refresh: refreshCatalog)
             }
 
             if settings.llmProvider == .local {
@@ -138,7 +144,9 @@ struct SettingsView: View {
 
             Toggle("Auto-process on stop", isOn: $settings.autoProcessOnStop)
         }
-        .task { await appModel.refreshModelCatalog(force: false) }
+        .task(id: appModel.connectivity.isOnline) {
+            if appModel.connectivity.isOnline { await appModel.refreshModelCatalog(force: false) }
+        }
     }
 
     private func refreshCatalog() {

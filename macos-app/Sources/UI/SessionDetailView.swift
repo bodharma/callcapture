@@ -373,6 +373,12 @@ struct SessionDetailView: View {
             .controlSize(.regular)
             .disabled(!hasMarkdown)
         }
+        if let reason = transcribeBlockReason, ["completed", "transcribed", "error", "failed", "interrupted"].contains(current.status) {
+            Text("\(reason) This session uses cloud transcription.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
     }
 
     // MARK: - Actions
@@ -398,7 +404,13 @@ struct SessionDetailView: View {
             Task { await transcribe() }
         }
         .buttonStyle(.borderedProminent)
-        .disabled(isTranscribing || appModel.state == .transcribing)
+        .disabled(isTranscribing || appModel.state == .transcribing || transcribeBlockReason != nil)
+    }
+
+    /// Cloud sessions cannot be (re)transcribed offline; local Whisper can.
+    private var transcribeBlockReason: String? {
+        NetworkPolicy.blockReason(engine: JobRequest.transcribe(session: current, settings: appModel.settingsManager).engine,
+                                  isOnline: appModel.connectivity.isOnline)
     }
 
     private func transcribe() async {
