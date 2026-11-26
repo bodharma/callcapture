@@ -47,6 +47,9 @@ enum ConversationMapError: LocalizedError {
 struct ConversationTopicService: Sendable {
     typealias Transport = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
 
+    /// Shown in the live view while automatic notes can't reach the provider.
+    static let offlineMessage = "Automatic notes paused: offline. Transcript and manual notes continue."
+
     private static let offlineCodes: Set<URLError.Code> = [
         .notConnectedToInternet, .networkConnectionLost, .cannotFindHost,
         .cannotConnectToHost, .timedOut, .dnsLookupFailed, .dataNotAllowed,
@@ -107,7 +110,7 @@ struct ConversationTopicService: Sendable {
         do {
             (data, response) = try await transport(request)
         } catch let error as URLError where Self.offlineCodes.contains(error.code) {
-            throw ConversationMapError.invalid("Automatic notes paused: offline. Transcript and manual notes continue.")
+            throw ConversationMapError.invalid(Self.offlineMessage)
         }
         if response.statusCode == 404 {
             throw ConversationMapError.invalid("Automatic notes model \(configuration.model) is not available from the provider (HTTP 404). Choose another model in Settings; transcript and manual notes remain available.")

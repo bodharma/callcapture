@@ -61,6 +61,10 @@ final class SessionManager {
     private(set) var currentSession: Session?
     private(set) var recentSessions: [Session] = []
 
+    /// Called with the session id after any change to a record (create, update, delete),
+    /// on the caller's thread. The app forwards it to the web UI as `sessionChanged`.
+    @ObservationIgnored var onSessionChange: (@Sendable (String) -> Void)?
+
     private static let logger = Logger(
         subsystem: "com.callcapture.app",
         category: "SessionManager"
@@ -154,6 +158,7 @@ final class SessionManager {
         }
 
         currentSession = session
+        onSessionChange?(sessionId)
         Self.logger.info("Session created: \(sessionId) - \(title)")
         return session
     }
@@ -195,6 +200,7 @@ final class SessionManager {
             recentSessions = Array(recentSessions.prefix(50))
         }
         currentSession = nil
+        onSessionChange?(finalized.id)
 
         Self.logger.info(
             "Session finalized: \(finalized.id), duration=\(finalized.durationSec ?? 0)s"
@@ -254,6 +260,7 @@ final class SessionManager {
                 record.engineUsed = engineUsed
                 try record.update(db)
             }
+            onSessionChange?(id)
         } catch {
             Self.logger.error("Failed to update session paths for \(id): \(error)")
         }
@@ -288,6 +295,7 @@ final class SessionManager {
                 recentSessions[index].costProcessing = costProcessing
                 recentSessions[index].costCurrency = costCurrency
             }
+            onSessionChange?(id)
         } catch {
             Self.logger.error("Failed to update session cost for \(id): \(error)")
         }
@@ -307,6 +315,7 @@ final class SessionManager {
             if let index = recentSessions.firstIndex(where: { $0.id == id }) {
                 recentSessions[index].warningMessage = message
             }
+            onSessionChange?(id)
         } catch {
             Self.logger.error("Failed to update session warning for \(id): \(error)")
         }
@@ -327,6 +336,7 @@ final class SessionManager {
                 record.analysisPath = analysisPath
                 try record.update(db)
             }
+            onSessionChange?(id)
         } catch {
             Self.logger.error("Failed to update analysis path for \(id): \(error)")
         }
@@ -381,6 +391,7 @@ final class SessionManager {
             if currentSession?.id == id {
                 currentSession = nil
             }
+            onSessionChange?(id)
             Self.logger.info("Session deleted with files: \(id)")
         } catch {
             Self.logger.error("Failed to delete session \(id): \(error)")
@@ -407,6 +418,7 @@ final class SessionManager {
             if let index = recentSessions.firstIndex(where: { $0.id == id }) {
                 recentSessions[index].notesLanguage = language
             }
+            onSessionChange?(id)
         } catch {
             Self.logger.error("Failed to update notes language for \(id): \(error)")
         }
@@ -430,6 +442,7 @@ final class SessionManager {
             if let index = recentSessions.firstIndex(where: { $0.id == id }) {
                 recentSessions[index].language = language
             }
+            onSessionChange?(id)
         } catch {
             Self.logger.error("Failed to update language for \(id): \(error)")
         }
@@ -455,6 +468,7 @@ final class SessionManager {
             if let index = recentSessions.firstIndex(where: { $0.id == id }) {
                 recentSessions[index].recordingType = recordingType
             }
+            onSessionChange?(id)
         } catch {
             Self.logger.error("Failed to update recording type for \(id): \(error)")
         }
@@ -489,6 +503,7 @@ final class SessionManager {
                 recentSessions[index].status = status
             }
 
+            onSessionChange?(id)
             Self.logger.info("Session \(id) status updated to '\(status)'")
         } catch {
             Self.logger.error("Failed to update session status for \(id): \(error)")

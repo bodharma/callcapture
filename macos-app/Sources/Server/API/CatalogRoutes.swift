@@ -22,6 +22,7 @@ func addCatalogRoutes(to router: Router<BasicRequestContext>, backend: any AppBa
             return APIResponse.error(.conflict, "offline", message: NetworkPolicy.catalogRefreshOfflineReason)
         }
         await backend.refreshCatalog(force: force)
+        await backend.events.publish(.catalog)
         return APIResponse.json(CatalogDTO(await backend.catalog()))
     }
 }

@@ -5,7 +5,7 @@ import os
 /// Routes for the loopback HTTP server that backs the local web UI.
 func makeRouter(
     backend: any AppBackend, security: ServerSecurity,
-    webDirectory: URL? = defaultWebDirectory()
+    webDirectory: URL? = defaultWebDirectory(), eventHeartbeat: Duration = .seconds(15)
 ) -> Router<BasicRequestContext> {
     let router = Router<BasicRequestContext>()
     router.add(middleware: LoopbackGuardMiddleware(security: security))
@@ -38,6 +38,9 @@ func makeRouter(
     addSessionsRoutes(to: router, backend: backend)
     addSettingsRoutes(to: router, backend: backend)
     addCatalogRoutes(to: router, backend: backend)
+    addEventsRoute(to: router, backend: backend, heartbeat: eventHeartbeat)
+    addRecordingRoutes(to: router, backend: backend)
+    addLiveRoutes(to: router, backend: backend)
     addStaticRoutes(to: router, webDirectory: webDirectory)
     return router
 }
@@ -101,6 +104,8 @@ final class LocalServer: Sendable {
             defer { current = nil }
             return current
         }
+        // Open event streams never end by themselves; end them so shutdown doesn't wait.
+        await backend.events.finishAll()
         task?.cancel()
         await task?.value
     }

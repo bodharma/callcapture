@@ -20,6 +20,10 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     private var vaultDirectory: URL?
     private var status = SystemStatus(online: true, recording: false, version: "test")
     private var settingsSide: FakeSettings?
+    /// The hub the API routes publish to; tests subscribe to it directly.
+    let events = EventHub()
+    /// Recording control and the live map (see `FakeLive`).
+    let live = FakeLive()
 
     init(sessions: [Session] = []) {
         store = sessions

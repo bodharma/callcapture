@@ -30,10 +30,10 @@ func addSettingsRoutes(to router: Router<BasicRequestContext>, backend: any AppB
         } catch {
             return invalidResponse("Send at most 16 KB of settings as a JSON object.")
         }
-        return await apiResult { APIResponse.json(try await backend.updateSettings(patch)) }
+        return await apiResult { await changed(backend, APIResponse.json(try await backend.updateSettings(patch))) }
     }
     router.post("api/settings/costs/reset") { _, _ in
-        await apiResult { APIResponse.json(try await backend.resetCosts()) }
+        await apiResult { await changed(backend, APIResponse.json(try await backend.resetCosts())) }
     }
     addSecretRoutes(to: router, backend: backend)
     addModelDownloadRoutes(to: router, backend: backend)
@@ -53,11 +53,11 @@ private func addSecretRoutes(to router: Router<BasicRequestContext>, backend: an
         guard !SettingsValidation.hasControlCharacters(value) else {
             return invalidResponse("The key can't contain line breaks or other control characters.")
         }
-        return await secretResult { try await backend.setSecret(key, value: value) }
+        return await changed(backend, await secretResult { try await backend.setSecret(key, value: value) })
     }
     router.delete("api/settings/secrets/:key") { _, context in
         guard let key = secretKey(context) else { return APIResponse.notFound() }
-        return await secretResult { try await backend.setSecret(key, value: "") }
+        return await changed(backend, await secretResult { try await backend.setSecret(key, value: "") })
     }
     router.post("api/settings/secrets/:key/test") { _, context in
         guard secretKey(context) == .openrouter else { return APIResponse.notFound() }
@@ -78,9 +78,15 @@ private func addModelDownloadRoutes(to router: Router<BasicRequestContext>, back
         }
         return await apiResult {
             try await backend.startModelDownload(kind)
-            return APIResponse.json(StartedDTO(), status: .accepted)
+            return await changed(backend, APIResponse.json(StartedDTO(), status: .accepted))
         }
     }
+}
+
+/// Tells every open page to refetch settings after a change that succeeded.
+private func changed(_ backend: any AppBackend, _ response: Response) async -> Response {
+    if (200..<300).contains(response.status.code) { await backend.events.publish(.settings) }
+    return response
 }
 
 func invalidResponse(_ message: String, key: String? = nil) -> Response {

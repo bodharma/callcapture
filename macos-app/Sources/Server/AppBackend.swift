@@ -36,6 +36,21 @@ protocol AppBackend: SettingsBackend {
     func liveDocument(id: String) async throws -> ConversationDocument?
     func revealInFinder(id: String) async throws
     func systemStatus() async -> SystemStatus
+
+    // MARK: Events, recording and the live view
+
+    /// Fans changes out to every open `/api/events` stream.
+    var events: EventHub { get }
+    /// Starts capture in the background and returns once the app has accepted the
+    /// request; throws `RecordingRequestError` when it can't start now.
+    func startRecording() async throws
+    /// Stops capture in the background; throws `RecordingRequestError.notRecording` etc.
+    func stopRecording() async throws
+    /// The map a target names, with its runtime state. `.current` is nil before any
+    /// meeting has used the live map; `.session` throws `.notFound` without a saved map.
+    func liveView(_ target: LiveTarget) async throws -> LiveView?
+    /// Validates and applies one action in a single step; throws `LiveActionError`.
+    func performLive(_ action: LiveAction, on target: LiveTarget) async throws -> LiveActionOutcome
 }
 
 struct SystemStatus: Codable, Equatable, Sendable {
@@ -43,6 +58,10 @@ struct SystemStatus: Codable, Equatable, Sendable {
     /// True while capture runs (or is starting/stopping): playback would be recorded.
     let recording: Bool
     let version: String
+    /// `RecordingPhase` raw value: idle, starting, recording, stopping or processing.
+    var recordingState: String = RecordingPhase.idle.rawValue
+    /// Why the last recording start or stop failed, as the menu shows it.
+    var problem: String? = nil
 }
 
 enum BackendError: Error, Equatable {

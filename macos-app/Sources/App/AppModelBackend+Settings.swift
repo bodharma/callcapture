@@ -79,9 +79,11 @@ extension AppModelBackend {
         guard !ready else { throw BackendError.busy("Already downloaded.") }
         try modelDownloads.begin(kind)
         let downloads = modelDownloads
+        let hub = events
         Task { @MainActor in
             let failure = await Self.download(kind, model: model)
             downloads.finish(kind, error: failure)
+            hub.post(.settings)
         }
     }
 

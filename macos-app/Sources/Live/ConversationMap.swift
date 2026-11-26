@@ -577,10 +577,11 @@ final class LiveMeetingModel {
     }
 
     private static func validTurn(_ turn: LiveTurn) -> Bool { !turn.id.isEmpty && turn.id.count <= 128 && turn.start.isFinite && turn.end.isFinite && turn.start >= 0 && turn.end >= turn.start && turn.end <= maxOffsetSeconds && !turn.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && turn.text.count <= 20_000 }
+    /// Notes languages the live map accepts (codes as Whisper reports them).
+    nonisolated static let knownLanguages: Set<String> = ["en", "uk", "ru", "pl", "de", "fr", "es", "it", "pt", "nl", "cs", "sv", "tr", "ja", "ko", "zh", "ar", "hi"]
     private static func resolvedLanguage(_ value: String) -> String? {
         let code = value.lowercased()
-        let known = ["en", "uk", "ru", "pl", "de", "fr", "es", "it", "pt", "nl", "cs", "sv", "tr", "ja", "ko", "zh", "ar", "hi"]
-        return known.contains(code) ? code : nil
+        return knownLanguages.contains(code) ? code : nil
     }
     private static func unique(_ ids: [String]) -> [String] { var seen = Set<String>(); return ids.filter { seen.insert($0).inserted } }
     private static func writeNew(_ data: Data, to url: URL) throws {

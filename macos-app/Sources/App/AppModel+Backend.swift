@@ -24,6 +24,9 @@ final class AppModelBackend: AppBackend {
     /// Model downloads started from the web UI (see `AppModelBackend+Settings`).
     let modelDownloads = ModelDownloads()
 
+    /// Server-sent events for every open page (see `AppModel+Events`).
+    let events = EventHub()
+
     var model: AppModel? { reference.withLockUnchecked { $0.model } }
 
     func requireModel() throws -> AppModel {
@@ -124,10 +127,13 @@ final class AppModelBackend: AppBackend {
     func systemStatus() async -> SystemStatus {
         guard let model else { return SystemStatus(online: false, recording: false, version: Self.version) }
         return await MainActor.run {
-            SystemStatus(
+            let phase = model.recordingPhase
+            return SystemStatus(
                 online: model.connectivity.isOnline,
-                recording: model.state == .recording || model.playbackBlocked,
-                version: Self.version)
+                recording: phase.blocksPlayback,
+                version: Self.version,
+                recordingState: phase.rawValue,
+                problem: model.recordingProblem)
         }
     }
 }

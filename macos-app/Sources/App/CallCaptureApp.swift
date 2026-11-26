@@ -75,13 +75,23 @@ final class AppModel {
     /// Port the local server is bound to; nil until it is serving (or if it failed to start).
     private(set) var localServerPort: Int?
 
+    /// Server-sent events for the web UI (owned by the server backend; see `AppModel+Events`).
+    @ObservationIgnored
+    let events: EventHub
+    /// Keeps the observers behind the events alive.
+    @ObservationIgnored
+    var eventWatchers: [AnyObject] = []
+    /// The last `recording` event sent, so repeated assignments don't repeat it.
+    @ObservationIgnored
+    let publishedRecording = OSAllocatedUnfairLock(initialState: "")
+
     @ObservationIgnored
     private var archiveWindowController: WebWindowController?
     @ObservationIgnored
     private var livePanelController: LivePanelController?
 
-    var state: AppState = .idle
-    var lastError: String?
+    var state: AppState = .idle { didSet { recordingStateDidChange() } }
+    var lastError: String? { didSet { recordingStateDidChange() } }
     var lastSessionTitle: String?
     var lastSessionDate: Date?
     var lastSessionDuration: Double?
@@ -103,8 +113,10 @@ final class AppModel {
     var liveMicrophoneEnabled = true
     /// True from just before capture starts until it has stopped: the system tap records
     /// every process, so session playback must stay silent for the whole window.
-    var playbackBlocked = false
-    private(set) var recordingTransitionInProgress = false
+    var playbackBlocked = false { didSet { recordingStateDidChange() } }
+    /// The start or stop being worked through; one at a time, from the menu or the web UI.
+    var recordingTransition: RecordingTransition? { didSet { recordingStateDidChange() } }
+    var recordingTransitionInProgress: Bool { recordingTransition != nil }
     let liveMeeting = LiveMeetingController()
     let connectivity = ConnectivityMonitor()
     /// A non-error note for the menu, e.g. a recording kept until cloud transcription can run.
@@ -140,11 +152,14 @@ final class AppModel {
     init(database: AppDatabase) {
         let serverBackend = AppModelBackend()
         self.localServer = LocalServer(backend: serverBackend)
+        self.events = serverBackend.events
         self.sessionManager = SessionManager(database: database)
         self.settingsManager = SettingsManager(database: database)
         self.catalogSnapshot = modelCatalog.cached()
         AppModel.shared = self
         serverBackend.attach(self)
+        // SwiftUI creates the app (and this model) on the main thread.
+        MainActor.assumeIsolated { startPublishingEvents() }
         startLocalServer()
         Task { @MainActor [weak self] in await self?.refreshModelCatalogIfUseful() }
         observeAudioDevices()
@@ -327,24 +342,6 @@ final class AppModel {
         }
     }
 
-    /// Toggles recording on/off. Creates a new session on start,
-    /// finalizes capture on stop.
-    @MainActor func toggleRecording() async {
-        guard !recordingTransitionInProgress else { return }
-        recordingTransitionInProgress = true
-        defer { recordingTransitionInProgress = false }
-        switch state {
-        case .idle, .error:
-            state = .idle
-            lastError = nil
-            await startRecording()
-        case .recording:
-            await stopRecording()
-        case .transcribing:
-            break
-        }
-    }
-
     /// Transcribes the given session using the Python worker.
     ///
     /// Builds a `JobRequest` from the session and current settings,
@@ -514,7 +511,8 @@ final class AppModel {
         }
     }
 
-    @MainActor private func startRecording() async {
+    /// Call through `beginRecordingTransition(.starting)` (see `AppModel+Recording`).
+    @MainActor func startRecording() async {
         notice = nil
         // Freshen a stale catalog in the background; this meeting uses what is cached now.
         Task { [weak self] in await self?.refreshModelCatalogIfUseful() }
@@ -591,7 +589,8 @@ final class AppModel {
         }
     }
 
-    @MainActor private func stopRecording() async {
+    /// Call through `beginRecordingTransition(.stopping)` (see `AppModel+Recording`).
+    @MainActor func stopRecording() async {
         do {
             try await captureManager.stopCapture()
             // Stays blocked if stopping failed: the tap may still be running.

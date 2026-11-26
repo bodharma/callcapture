@@ -21,6 +21,7 @@ func addSessionsRoutes(to router: Router<BasicRequestContext>, backend: any AppB
     router.delete("api/sessions/:id") { _, context in
         await withSession(context, backend) { session in
             try await backend.delete(id: session.id)
+            await backend.events.publish(.sessionChanged(id: session.id))
             return APIResponse.noContent()
         }
     }
@@ -96,6 +97,8 @@ private func addSpeakerRoutes(to router: Router<BasicRequestContext>, backend: a
                 return APIResponse.badRequest(#"Send {"name": "…"}; an empty name restores the label."#)
             }
             try await backend.renameSpeaker(id: session.id, label: label, name: body.name)
+            // Both hosts may show this session; the last rename wins and both refetch.
+            await backend.events.publish(.sessionChanged(id: session.id))
             return APIResponse.noContent()
         }
     }
@@ -124,20 +127,22 @@ private func addMediaRoutes(to router: Router<BasicRequestContext>, backend: any
 
 private func addActionRoutes(to router: Router<BasicRequestContext>, backend: any AppBackend) {
     router.post("api/sessions/:id/reprocess") { _, context in
-        // Starts the run and answers at once; the UI polls GET /api/sessions/:id
-        // (status, error) until Task 8's events replace polling.
+        // Starts the run and answers at once; status changes arrive as `sessionChanged`.
         await withSession(context, backend) { session in
             do {
                 try await backend.reprocess(id: session.id)
             } catch BackendError.busy(let reason) {
                 return APIResponse.error(.conflict, reason)
             }
+            await backend.events.publish(.sessionChanged(id: session.id))
             return APIResponse.json(StartedDTO(), status: .accepted)
         }
     }
     router.post("api/sessions/:id/vault") { _, context in
         await withSession(context, backend) { session in
-            APIResponse.json(VaultDTO(path: try await backend.saveToVault(id: session.id).path))
+            let saved = try await backend.saveToVault(id: session.id)
+            await backend.events.publish(.sessionChanged(id: session.id))
+            return APIResponse.json(VaultDTO(path: saved.path))
         }
     }
     router.post("api/sessions/:id/reveal") { _, context in
