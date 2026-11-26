@@ -160,6 +160,13 @@ menu bar, without maintaining two interfaces.
 - Manual: both hosts render the same screens; browser login via menu bar; offline
   states; playback; live meeting end to end.
 
+## Frontend libraries (confirmed by the user, 2026-11-26)
+
+- Markdown: `react-markdown` + remark plugins (GFM now; wikilinks/math/mermaid later), no raw HTML.
+- Routing: React Router v7 in library mode.
+- Server data: TanStack Query (polling now; invalidation from the events stream later).
+- Waveform: wavesurfer.js fed with the server's precomputed peaks and the ranged audio endpoint.
+
 ## Left to the builder
 
 Component structure, routing, state management, exact endpoint names and payloads
