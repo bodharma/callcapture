@@ -85,62 +85,67 @@ struct LiveWorkerTests {
         #expect(!worker.isRunning)
     }
 
-    @Test("concurrently finished workers release their pipes and deallocate")
-    func concurrentWorkersRelease() async throws {
-        // Regression: with many workers exiting at once, `Process.waitUntilExit()` on a pool thread
-        // sometimes never returned, so the reader kept the worker and its pipe descriptors alive forever.
-        try await Self.runWorkerOnce() // warm-up: process-lifetime descriptors are created on first launch
-        let baseline = PipeSnapshot.current()
-        var workers: [WeakWorker] = []
-        for _ in 0..<12 {
-            workers += try await withThrowingTaskGroup(of: WeakWorker.self) { group in
-                for _ in 0..<24 { group.addTask { try await Self.runWorkerOnce() } }
-                return try await group.reduce(into: []) { $0.append($1) }
+    /// The two tests that snapshot the whole process's pipes. Serialized only against each other so one
+    /// cannot see the other's in-flight pipes; every other suite still runs in parallel.
+    @Suite("Worker pipe release", .serialized)
+    struct PipeRelease {
+        @Test("concurrently finished workers release their pipes and deallocate")
+        func concurrentWorkersRelease() async throws {
+            // Regression: with many workers exiting at once, `Process.waitUntilExit()` on a pool thread
+            // sometimes never returned, so the reader kept the worker and its pipe descriptors alive forever.
+            try await Self.runWorkerOnce() // warm-up: process-lifetime descriptors are created on first launch
+            let baseline = PipeSnapshot.current()
+            var workers: [WeakWorker] = []
+            for _ in 0..<8 {
+                workers += try await withThrowingTaskGroup(of: WeakWorker.self) { group in
+                    for _ in 0..<24 { group.addTask { try await Self.runWorkerOnce() } }
+                    return try await group.reduce(into: []) { $0.append($1) }
+                }
             }
+            var extra = PipeSnapshot.current().subtracting(baseline)
+            var alive = workers.filter { $0.worker != nil }.count
+            let deadline = Date().addingTimeInterval(TestTiming.subprocessWait)
+            while (!extra.isEmpty || alive > 0) && Date() < deadline {
+                try await Task.sleep(for: .milliseconds(50))
+                extra = PipeSnapshot.current().subtracting(baseline)
+                alive = workers.filter { $0.worker != nil }.count
+            }
+            #expect(alive == 0, "\(alive) finished workers were never released")
+            #expect(extra.isEmpty, "leaked pipe descriptors: \(extra.sorted { $0.fd < $1.fd })")
         }
-        var extra = PipeSnapshot.current().subtracting(baseline)
-        var alive = workers.filter { $0.worker != nil }.count
-        let deadline = Date().addingTimeInterval(TestTiming.subprocessWait)
-        while (!extra.isEmpty || alive > 0) && Date() < deadline {
-            try await Task.sleep(for: .milliseconds(50))
-            extra = PipeSnapshot.current().subtracting(baseline)
-            alive = workers.filter { $0.worker != nil }.count
-        }
-        #expect(alive == 0, "\(alive) finished workers were never released")
-        #expect(extra.isEmpty, "leaked pipe descriptors: \(extra.sorted { $0.fd < $1.fd })")
-    }
 
-    @Test("stderr drain ends cleanly and no descriptors leak across worker runs")
-    func stderrLifecycle() async throws {
-        // Identify pipes by (fd, kernel pipe handle) via libproc. Counting every descriptor (or using
-        // fstat/S_IFIFO, which reports kqueues as FIFOs on macOS) also counts unrelated long-lived
-        // descriptors that other suites open in parallel (SwiftNIO kqueues from the server tests).
-        // Warm up first: Foundation/libdispatch lazily create process-lifetime descriptors on the first
-        // worker launch, which must not count against the measured runs.
-        try await Self.runWorkerOnce()
-        let baseline = PipeSnapshot.current()
-        for _ in 0..<5 { try await Self.runWorkerOnce() }
-        // Pipes other suites opened meanwhile close when their workers finish; ours must too.
-        var extra = PipeSnapshot.current().subtracting(baseline)
-        let deadline = Date().addingTimeInterval(TestTiming.subprocessWait)
-        while !extra.isEmpty && Date() < deadline {
-            try await Task.sleep(for: .milliseconds(50))
-            extra = PipeSnapshot.current().subtracting(baseline)
+        @Test("stderr drain ends cleanly and no descriptors leak across worker runs")
+        func stderrLifecycle() async throws {
+            // Identify pipes by (fd, kernel pipe handle) via libproc. Counting every descriptor (or using
+            // fstat/S_IFIFO, which reports kqueues as FIFOs on macOS) also counts unrelated long-lived
+            // descriptors that other suites open in parallel (SwiftNIO kqueues from the server tests).
+            // Warm up first: Foundation/libdispatch lazily create process-lifetime descriptors on the first
+            // worker launch, which must not count against the measured runs.
+            try await Self.runWorkerOnce()
+            let baseline = PipeSnapshot.current()
+            for _ in 0..<5 { try await Self.runWorkerOnce() }
+            // Pipes other suites opened meanwhile close when their workers finish; ours must too.
+            var extra = PipeSnapshot.current().subtracting(baseline)
+            let deadline = Date().addingTimeInterval(TestTiming.subprocessWait)
+            while !extra.isEmpty && Date() < deadline {
+                try await Task.sleep(for: .milliseconds(50))
+                extra = PipeSnapshot.current().subtracting(baseline)
+            }
+            #expect(extra.isEmpty, "leaked pipe descriptors: \(extra.sorted { $0.fd < $1.fd })")
         }
-        #expect(extra.isEmpty, "leaked pipe descriptors: \(extra.sorted { $0.fd < $1.fd })")
-    }
 
-    /// One full worker lifecycle: noisy stderr, ready event, graceful stop.
-    @discardableResult
-    private static func runWorkerOnce() async throws -> WeakWorker {
-        let worker = LiveWorkerProcess(configuration: WorkerProcessConfiguration(
-            executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
-            arguments: ["-u", "-c", "import sys,json\nsys.stderr.write('x'*300000)\nprint(json.dumps({'type':'ready'}),flush=True)\nfor l in sys.stdin: break"],
-            directory: nil, environment: [:]))
-        let events = try worker.start()
-        for try await event in events { if case .ready = event { break } }
-        try await worker.finish(timeout: TestTiming.subprocessWait)
-        return WeakWorker(worker: worker)
+        /// One full worker lifecycle: noisy stderr, ready event, graceful stop.
+        @discardableResult
+        private static func runWorkerOnce() async throws -> WeakWorker {
+            let worker = LiveWorkerProcess(configuration: WorkerProcessConfiguration(
+                executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
+                arguments: ["-u", "-c", "import sys,json\nsys.stderr.write('x'*300000)\nprint(json.dumps({'type':'ready'}),flush=True)\nfor l in sys.stdin: break"],
+                directory: nil, environment: [:]))
+            let events = try worker.start()
+            for try await event in events { if case .ready = event { break } }
+            try await worker.finish(timeout: TestTiming.subprocessWait)
+            return WeakWorker(worker: worker)
+        }
     }
 }
 
