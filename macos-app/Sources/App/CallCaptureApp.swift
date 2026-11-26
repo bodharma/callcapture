@@ -94,6 +94,12 @@ final class AppModel {
     var playbackBlocked = false
     private(set) var recordingTransitionInProgress = false
     let liveMeeting = LiveMeetingController()
+    let modelCatalog = ModelCatalogService(cacheURL: AppModel.catalogCacheURL)
+    /// Last known OpenRouter catalog (cached or freshly fetched); nil before the first fetch.
+    var catalogSnapshot: ModelCatalogSnapshot?
+    /// Why the last catalog refresh failed (e.g. offline); the cached snapshot stays usable.
+    var catalogProblem: String?
+    var catalogRefreshing = false
 
     @ObservationIgnored
     private var audioDeviceListeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
@@ -119,6 +125,7 @@ final class AppModel {
     init(database: AppDatabase) {
         self.sessionManager = SessionManager(database: database)
         self.settingsManager = SettingsManager(database: database)
+        self.catalogSnapshot = modelCatalog.cached()
         AppModel.shared = self
         observeAudioDevices()
         refreshAudioDevices()
@@ -126,6 +133,27 @@ final class AppModel {
 
     deinit {
         removeAudioDeviceListeners()
+    }
+
+    static var catalogCacheURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("CallCapture", isDirectory: true)
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        return base.appendingPathComponent("model-catalog.json")
+    }
+
+    /// Refreshes the OpenRouter catalog (at most daily unless forced); on failure the
+    /// cached snapshot stays in place and `catalogProblem` says why.
+    @MainActor func refreshModelCatalog(force: Bool) async {
+        guard !catalogRefreshing else { return }
+        catalogRefreshing = true
+        defer { catalogRefreshing = false }
+        do {
+            catalogSnapshot = try await modelCatalog.refresh(apiKey: settingsManager.openRouterApiKey, force: force)
+            catalogProblem = nil
+        } catch {
+            catalogProblem = error.localizedDescription
+        }
     }
 
     private func observeAudioDevices() {

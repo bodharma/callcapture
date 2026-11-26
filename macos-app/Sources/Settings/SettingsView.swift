@@ -111,9 +111,18 @@ struct SettingsView: View {
                 }
             }
 
-            LLMModelPickerRow(slug: $settings.llmModel)
+            if settings.llmProvider == .openrouter {
+                ModelPickerView(role: .final, selection: $settings.llmModel, snapshot: appModel.catalogSnapshot,
+                                isOnline: true, refresh: refreshCatalog)
+                ModelPickerView(role: .live, selection: $settings.liveLLMModel, snapshot: appModel.catalogSnapshot,
+                                isOnline: true, refresh: refreshCatalog)
+                ModelCatalogStatusRow(snapshot: appModel.catalogSnapshot, problem: appModel.catalogProblem,
+                                      refreshing: appModel.catalogRefreshing, isOnline: true, refresh: refreshCatalog)
+            }
 
             if settings.llmProvider == .local {
+                TextField("Local model", text: $settings.localLLMModel, prompt: Text("e.g. qwen2.5:32b"))
+                    .textFieldStyle(.roundedBorder)
                 TextField("Local LLM Base URL", text: $settings.localLLMBaseURL)
                     .textFieldStyle(.roundedBorder)
                 Text("Run a model in Ollama, e.g. `ollama run qwen2.5:32b`, then set Model to its id.")
@@ -129,6 +138,11 @@ struct SettingsView: View {
 
             Toggle("Auto-process on stop", isOn: $settings.autoProcessOnStop)
         }
+        .task { await appModel.refreshModelCatalog(force: false) }
+    }
+
+    private func refreshCatalog() {
+        Task { await appModel.refreshModelCatalog(force: true) }
     }
 
     @ViewBuilder
@@ -420,53 +434,6 @@ private struct OpenRouterTestRow: View {
         } catch {
             status = .failed(message: (error as? LocalizedError)?.errorDescription
                 ?? error.localizedDescription)
-        }
-    }
-}
-
-/// Picker over the curated OpenRouter model catalog with a "Custom…" escape
-/// hatch. The bound `slug` is always what the worker receives via `LLM_MODEL`.
-@available(macOS 14.2, *)
-private struct LLMModelPickerRow: View {
-    @Binding var slug: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Picker("Model", selection: Binding(
-                get: { LLMModelCatalog.option(for: slug) },
-                set: { option in
-                    if !option.isCustom {
-                        slug = option.slug
-                    } else if LLMModelCatalog.curated.contains(where: { $0.slug == slug && !$0.isCustom }) {
-                        // Switching FROM a curated slug to Custom — clear so the
-                        // user can type a new one without the old slug lingering.
-                        slug = ""
-                    }
-                }
-            )) {
-                Section("Best for tone & nuance") {
-                    ForEach(LLMModelCatalog.toneAware) { option in
-                        Text(option.displayName).tag(option)
-                    }
-                }
-                Section("Fast & cheap") {
-                    ForEach(LLMModelCatalog.fastAndCheap) { option in
-                        Text(option.displayName).tag(option)
-                    }
-                }
-                Text(LLMModelCatalog.custom.displayName).tag(LLMModelCatalog.custom)
-            }
-
-            let selected = LLMModelCatalog.option(for: slug)
-            if selected.isCustom {
-                TextField("Slug (e.g. provider/model-id)", text: $slug)
-                    .textFieldStyle(.roundedBorder)
-                Text("Any OpenRouter model id. Browse openrouter.ai/models.")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                Text(selected.blurb)
-                    .font(.caption).foregroundStyle(.secondary)
-            }
         }
     }
 }

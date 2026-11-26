@@ -4,31 +4,13 @@ import Testing
 
 @Suite("LLMModelCatalog")
 struct LLMModelCatalogTests {
-    @Test("catalog contains the worker's default slug")
-    func defaultPresent() {
-        let opt = LLMModelCatalog.option(for: LLMModelCatalog.defaultSlug)
-        #expect(opt.isCustom == false)
-        #expect(opt.slug == LLMModelCatalog.defaultSlug)
-    }
 
-    @Test("slugs are unique within the curated list")
-    func uniqueSlugs() {
-        let slugs = LLMModelCatalog.curated.filter { !$0.isCustom }.map(\.slug)
-        #expect(slugs.count == Set(slugs).count)
-    }
 
-    @Test("custom sentinel is last and round-trips an unknown slug")
-    func customFallback() {
-        #expect(LLMModelCatalog.curated.last?.isCustom == true)
-        let opt = LLMModelCatalog.option(for: "experimental/never-shipped-model")
-        #expect(opt.isCustom == true)
-    }
 
-    @Test("display names are non-empty")
-    func displayNames() {
-        for opt in LLMModelCatalog.curated {
-            #expect(!opt.displayName.isEmpty)
-        }
+
+    @Test("retired slugs never map to another retired slug")
+    func successorsAreCurrent() {
+        #expect(Set(LLMModelCatalog.retired.values).isDisjoint(with: LLMModelCatalog.retired.keys))
     }
 
     @Test("slugs OpenRouter retired map to their successors; current slugs pass through")
@@ -39,12 +21,6 @@ struct LLMModelCatalogTests {
         #expect(LLMModelCatalog.current("experimental/custom") == "experimental/custom")
     }
 
-    @Test("no retired slug is offered in the picker")
-    func noRetiredInCatalog() {
-        let offered = Set(LLMModelCatalog.curated.map(\.slug))
-        #expect(offered.isDisjoint(with: LLMModelCatalog.retired.keys))
-        #expect(LLMModelCatalog.retired.values.allSatisfy { offered.contains($0) })
-    }
 
     @Test("a persisted retired model is migrated when settings load")
     func settingsMigrateRetiredModel() throws {
