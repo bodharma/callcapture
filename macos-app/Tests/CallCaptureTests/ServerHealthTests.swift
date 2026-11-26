@@ -12,11 +12,11 @@ struct ServerHealthTests {
     func healthAnswers() async throws {
         let security = ServerSecurity(port: 8080)
         let session = security.exchange(token: security.issueLoginToken())!
-        let app = Application(router: makeRouter(backend: FakeBackend(), security: security))
+        let app = makeServerApp(security, authority: "127.0.0.1:8080")
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/api/health", method: .get,
-                headers: [hostName: "127.0.0.1:8080", .cookie: "cc_session=\(session)"]
+                headers: [.cookie: "cc_session=\(session)"]
             ) { response in
                 #expect(response.status == .ok)
                 #expect(response.headers[.contentType]?.hasPrefix("application/json") == true)
@@ -25,5 +25,3 @@ struct ServerHealthTests {
         }
     }
 }
-
-private let hostName = HTTPField.Name("Host")!

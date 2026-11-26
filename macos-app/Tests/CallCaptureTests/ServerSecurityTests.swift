@@ -16,31 +16,65 @@ private final class TestClock: @unchecked Sendable {
 
 private let hostName = HTTPField.Name("Host")!
 private let port = 54321
-private let goodHost: HTTPFields = [hostName: "127.0.0.1:\(port)"]
+private let goodAuthority = "127.0.0.1:\(port)"
+private let goodHost: HTTPFields = [:]
 
-private func makeApp(_ security: ServerSecurity) -> some ApplicationProtocol {
-    Application(router: makeRouter(backend: FakeBackend(), security: security))
+private func makeApp(
+    _ security: ServerSecurity, authority: String? = goodAuthority
+) -> some ApplicationProtocol {
+    makeServerApp(security, authority: authority)
 }
 
 private func sessionCookie(_ security: ServerSecurity) -> HTTPFields {
     let id = security.exchange(token: security.issueLoginToken())!
-    return [hostName: "127.0.0.1:\(port)", .cookie: "cc_session=\(id)"]
+    return [.cookie: "cc_session=\(id)"]
 }
 
 @Suite("Server security")
 struct ServerSecurityTests {
-    @Test("a foreign Host header is rejected")
-    func rejectsForeignHost() async throws {
+    @Test("only 127.0.0.1:port and localhost:port authorities pass", arguments: [
+        "evil.example:54321", "127.0.0.1:1", "localhost", "127.0.0.1", "evil.example",
+    ])
+    func rejectsForeignAuthority(authority: String) async throws {
+        let security = ServerSecurity(port: port)
+        try await makeApp(security, authority: authority).test(.router) { client in
+            try await client.execute(uri: "/api/health", method: .get) {
+                #expect($0.status == .forbidden)
+            }
+        }
+    }
+
+    @Test("a missing authority is rejected")
+    func rejectsMissingAuthority() async throws {
+        let security = ServerSecurity(port: port)
+        try await makeApp(security, authority: nil).test(.router) { client in
+            try await client.execute(uri: "/api/health", method: .get) {
+                #expect($0.status == .forbidden)
+            }
+        }
+    }
+
+    @Test("an allowed authority passes the guard (then needs a session)",
+          arguments: ["127.0.0.1:54321", "localhost:54321"])
+    func allowsLoopbackAuthority(authority: String) async throws {
+        let security = ServerSecurity(port: port)
+        try await makeApp(security, authority: authority).test(.router) { client in
+            try await client.execute(uri: "/api/health", method: .get) {
+                #expect($0.status == .unauthorized)
+            }
+        }
+    }
+
+    @Test("a leftover Host field (duplicate Host header) is rejected, even with a good authority")
+    func rejectsDuplicateHostField() async throws {
         let security = ServerSecurity(port: port)
         try await makeApp(security).test(.router) { client in
-            for host in ["evil.example:\(port)", "127.0.0.1:1", "localhost"] {
-                try await client.execute(
-                    uri: "/api/health", method: .get, headers: [hostName: host]
-                ) { #expect($0.status == .forbidden) }
-            }
             try await client.execute(
-                uri: "/api/health", method: .get, headers: [hostName: "localhost:\(port)"]
-            ) { #expect($0.status == .unauthorized) }  // host passes, session missing
+                uri: "/api/health", method: .get, headers: [hostName: goodAuthority]
+            ) { #expect($0.status == .forbidden) }
+            try await client.execute(
+                uri: "/api/health", method: .get, headers: [hostName: "evil.example"]
+            ) { #expect($0.status == .forbidden) }
         }
     }
 
@@ -75,11 +109,23 @@ struct ServerSecurityTests {
             }
             try await client.execute(
                 uri: "/api/health", method: .get,
-                headers: [hostName: "127.0.0.1:\(port)", .cookie: "cc_session=forged"]
+                headers: [.cookie: "cc_session=forged"]
             ) { #expect($0.status == .unauthorized) }
             try await client.execute(
                 uri: "/api/health", method: .get, headers: sessionCookie(security)
             ) { #expect($0.status == .ok) }
+        }
+    }
+
+    @Test("empty path segments cannot dodge the session check", arguments: [
+        "//api/health", "///api/health", "/api//health",
+    ])
+    func emptySegmentsStillNeedSession(path: String) async throws {
+        let security = ServerSecurity(port: port)
+        try await makeApp(security).test(.router) { client in
+            try await client.execute(uri: path, method: .get, headers: goodHost) {
+                #expect($0.status == .unauthorized)
+            }
         }
     }
 

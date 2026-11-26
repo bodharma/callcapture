@@ -133,11 +133,13 @@ struct LoopbackGuardMiddleware<Context: RequestContext>: RouterMiddleware {
         _ request: Request, context: Context,
         next: (Request, Context) async throws -> Response
     ) async throws -> Response {
-        // On a real connection NIO moves the HTTP/1 Host into the request
-        // authority. HTTPTypes hides `Host` behind `.host` (unavailable), so
-        // a literal Host field is read by name; it takes precedence, which
-        // is what lets router-level tests choose the host.
-        let host = request.headers[Self.hostField] ?? request.head.authority
+        // NIO turns the first HTTP/1 Host header into the request authority
+        // and drops it from the fields. A Host field that is still present
+        // is therefore a duplicate Host header: ambiguous, so refuse it.
+        guard request.headers[Self.hostField] == nil else {
+            return jsonResponse(.forbidden, #"{"error":"forbidden host"}"#)
+        }
+        let host = request.head.authority
         guard security.isAllowedHost(host) else {
             return jsonResponse(.forbidden, #"{"error":"forbidden host"}"#)
         }
@@ -160,8 +162,10 @@ struct AuthMiddleware<Context: RequestContext>: RouterMiddleware {
         _ request: Request, context: Context,
         next: (Request, Context) async throws -> Response
     ) async throws -> Response {
-        let path = request.uri.path
-        if path == "/api" || path.hasPrefix("/api/") {
+        // The router skips empty segments ("//api/x" routes like "/api/x"),
+        // so decide on the first non-empty segment, not on the raw prefix.
+        let first = request.uri.path.split(separator: "/", omittingEmptySubsequences: true).first
+        if first == "api" {
             guard let session = request.cookies[ServerSecurity.sessionCookieName]?.value,
                 security.isValidSession(session)
             else { return signinRequiredResponse() }
