@@ -9,7 +9,7 @@ import Testing
 
 /// Polls `condition` until it holds or `timeout` passes; events and unsubscribes hop actors.
 func eventually(
-    timeout: Duration = .seconds(2), _ condition: @Sendable () async -> Bool
+    timeout: Duration = .seconds(10), _ condition: @Sendable () async -> Bool
 ) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {

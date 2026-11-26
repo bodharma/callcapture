@@ -32,14 +32,19 @@ interface PartTypes {
 }
 export type SessionPart = keyof PartTypes;
 
+/** A slow safety refetch: TanStack refetches on tab visibility only, not when another app had focus. */
+const SYSTEM_SAFETY_MS = 60_000;
+
 /**
  * Recording state, network and version. Kept current by the events stream
- * (`hello`, `recording`, `connectivity`); refetched on window focus as a safety net.
+ * (`hello`, `recording`, `connectivity`); refetched when the page becomes visible
+ * and once a minute as a safety net.
  */
 export function useSystem() {
   return useQuery({
     queryKey: keys.system,
     queryFn: () => apiGet<SystemStatus>("/api/system"),
+    refetchInterval: SYSTEM_SAFETY_MS,
   });
 }
 
