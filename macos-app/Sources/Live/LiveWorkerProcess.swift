@@ -43,6 +43,9 @@ final class LiveWorkerProcess: @unchecked Sendable {
     private let output = Pipe()
     private let diagnostics = Pipe()
     private let lock = NSLock()
+    /// Signalled by the process termination handler. `Process.waitUntilExit()` is not used on a pool
+    /// thread because it can miss the exit notification and then block that thread (and this worker) forever.
+    private let exited = DispatchSemaphore(value: 0)
     private let writer = DispatchQueue(label: "com.callcapture.live.stdin", qos: .utility)
     private var ready = false
     private var pending: Set<String> = []
@@ -61,6 +64,7 @@ final class LiveWorkerProcess: @unchecked Sendable {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = diagnostics
+        process.terminationHandler = { [exited] _ in exited.signal() }
         try process.run()
         DispatchQueue.global(qos: .utility).async { [self] in readEvents() }
         // Drain logs without retaining meeting content or allowing stderr pipe pressure.
@@ -164,7 +168,7 @@ final class LiveWorkerProcess: @unchecked Sendable {
                 guard buffer.count <= 1_300_000 else { throw LiveWorkerError.invalidFrame }
             }
             guard buffer.isEmpty else { throw LiveWorkerError.invalidFrame }
-            process.waitUntilExit()
+            exited.wait()
             continuation?.yield(.exited(process.terminationStatus))
             continuation?.finish()
         } catch {
