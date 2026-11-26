@@ -4,6 +4,7 @@ import { timecode } from "../../lib/format";
 import { currentTarget, useLiveAction } from "./api";
 import { channelLines, memoTag, speaker, topicByID, topicParentTitle, usageLine } from "./liveFormat";
 import { NoteComposer } from "./NoteComposer";
+import "./compact.css";
 
 const LATEST_MEMOS = 3;
 const SOURCES: readonly LiveSource[] = ["system", "mic"];

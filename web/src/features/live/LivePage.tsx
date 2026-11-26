@@ -10,6 +10,7 @@ import { currentTarget, useLive } from "./api";
 import { CompactLive } from "./CompactLive";
 import { FullLive } from "./FullLive";
 import { useCompact } from "./useCompact";
+import "./compact.css";
 import "./live.css";
 
 interface LiveContentProps {
