@@ -15,12 +15,14 @@ enum CostFormat {
     }
 }
 
-/// Full session detail view showing metadata, transcript previews,
+/// Full session detail view showing metadata, the transcript with playback, the note,
 /// and action buttons for transcription and export.
 @available(macOS 14.2, *)
 struct SessionDetailView: View {
     @Environment(AppModel.self) private var appModel
     let session: Session
+    /// Transcript position to open at (from a search hit); the player is positioned, not started.
+    var focusTime: Double?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -36,6 +38,12 @@ struct SessionDetailView: View {
     @State private var analysis: ConversationAnalysis?
     @State private var savedLiveModel: LiveMeetingModel?
     @State private var showLiveMap = false
+    @State private var transcriptLines: [TranscriptLine] = []
+    /// Bumped when the transcript changes (e.g. Re-process) so the player reloads.
+    @State private var transcriptRevision = 0
+    @State private var transcriptLoadError: String?
+    @State private var noteText: String?
+    @State private var speakerNames = SpeakerNames()
 
     private static let logger = Logger(
         subsystem: "com.callcapture.app",
@@ -95,6 +103,31 @@ struct SessionDetailView: View {
     private func reload() {
         liveSession = appModel.sessionManager.session(id: session.id)
         analysis = current.analysisPath.flatMap(ConversationAnalysis.load(fromPath:))
+        var lines: [TranscriptLine] = []
+        transcriptLoadError = nil
+        if let path = current.transcriptRawPath, FileManager.default.fileExists(atPath: path) {
+            do { lines = try TranscriptDocument.load(path: path) } catch {
+                transcriptLoadError = "The transcript file could not be read: \(error.localizedDescription)"
+            }
+        }
+        if lines != transcriptLines {
+            transcriptLines = lines
+            transcriptRevision += 1
+        }
+        noteText = current.transcriptMarkdownPath.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
+        do { speakerNames = try SpeakerNames.load(audioPath: current.audioPath) } catch {
+            transcriptionError = "Speaker names could not be read: \(error.localizedDescription)"
+        }
+    }
+
+    private func renameSpeaker(_ label: String, to name: String) {
+        let updated = speakerNames.renamed(label, to: name)
+        do {
+            try updated.save(audioPath: current.audioPath)
+            speakerNames = updated
+        } catch {
+            transcriptionError = "Could not save the speaker name: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - Sections
@@ -232,21 +265,30 @@ struct SessionDetailView: View {
 
     @ViewBuilder
     private var transcriptSection: some View {
-        if let rawPath = current.transcriptRawPath,
-           FileManager.default.fileExists(atPath: rawPath) {
-            GroupBox("Raw Transcript") {
-                TranscriptPreview(filePath: rawPath)
+        if !transcriptLines.isEmpty {
+            GroupBox("Transcript") {
+                TranscriptPlayerView(lines: transcriptLines, names: speakerNames,
+                                     audioPath: current.audioPath, focusTime: focusTime,
+                                     playbackBlocked: appModel.playbackBlocked,
+                                     onRename: renameSpeaker)
+                    .id(transcriptRevision)
+            }
+        } else if let transcriptLoadError {
+            GroupBox("Transcript") {
+                Label(transcriptLoadError, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
     @ViewBuilder
     private var markdownSection: some View {
-        if let mdPath = current.transcriptMarkdownPath,
-           FileManager.default.fileExists(atPath: mdPath) {
+        if let noteText, let mdPath = current.transcriptMarkdownPath {
             GroupBox("Markdown Note") {
                 VStack(alignment: .leading, spacing: 8) {
-                    TranscriptPreview(filePath: mdPath)
+                    NoteTextView(text: speakerNames.apply(to: noteText))
                     Button("Open Markdown") {
                         NSWorkspace.shared.open(URL(fileURLWithPath: mdPath))
                     }
@@ -262,7 +304,7 @@ struct SessionDetailView: View {
     private var insightsSection: some View {
         if let analysis, analysis.hasContent {
             GroupBox("Conversation Insights") {
-                ConversationInsightsView(analysis: analysis)
+                ConversationInsightsView(analysis: analysis, names: speakerNames)
             }
         }
     }
@@ -390,18 +432,37 @@ struct SessionDetailView: View {
             return
         }
 
+        let data: Data
+        do {
+            data = try exportData(from: source, ext: ext)
+        } catch {
+            transcriptionError = "Export failed: \(error.localizedDescription)"
+            return
+        }
+
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "\(safeFileName(current.title)).\(ext)"
         panel.allowedContentTypes = [.plainText]
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
+        // The panel already confirmed any replacement; write atomically so a failure keeps the old file.
         do {
-            try FileManager.default.copyItem(
-                at: URL(fileURLWithPath: source), to: url
-            )
+            try data.write(to: url, options: .atomic)
         } catch {
             transcriptionError = "Export failed: \(error.localizedDescription)"
         }
+    }
+
+    /// Export contents with the session's speaker names applied.
+    private func exportData(from path: String, ext: String) throws -> Data {
+        // No names: export the worker's bytes unchanged (keeps nulls and any newer fields).
+        if speakerNames.isEmpty { return try Data(contentsOf: URL(fileURLWithPath: path)) }
+        if ext == "json" {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
+            return try encoder.encode(speakerNames.applied(to: TranscriptDocument.load(path: path)))
+        }
+        return Data(speakerNames.apply(to: try String(contentsOfFile: path, encoding: .utf8)).utf8)
     }
 
     /// Copies the markdown note into the configured Obsidian vault (or the
@@ -435,8 +496,9 @@ struct SessionDetailView: View {
             .appendingPathComponent(subfolder, isDirectory: true)
 
         do {
-            let destURL = try SessionNoteExport.copy(source: URL(fileURLWithPath: mdPath), directory: destDir,
-                                                     title: current.title, sessionID: current.id)
+            let note = speakerNames.apply(to: try String(contentsOfFile: mdPath, encoding: .utf8))
+            let destURL = try SessionNoteExport.write(Data(note.utf8), directory: destDir,
+                                                      title: current.title, sessionID: current.id)
             saveMessage = "Saved to \(destURL.path)"
             Self.logger.info("Saved note to \(destURL.path)")
         } catch {
@@ -487,38 +549,5 @@ struct SessionDetailView: View {
             Text(value)
                 .font(.subheadline)
         }
-    }
-}
-
-/// Reads the first portion of a file and displays it as a text preview.
-@available(macOS 14.2, *)
-private struct TranscriptPreview: View {
-    let filePath: String
-    private let maxPreviewLength = 1000
-
-    var body: some View {
-        if let content = previewContent {
-            Text(content)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-        } else {
-            Text("Unable to read file")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-        }
-    }
-
-    private var previewContent: String? {
-        guard let data = FileManager.default.contents(atPath: filePath),
-              let text = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        if text.count > maxPreviewLength {
-            return String(text.prefix(maxPreviewLength)) + "..."
-        }
-        return text
     }
 }

@@ -341,6 +341,7 @@ final class SessionManager {
                     "_diarization.json",
                     "_system_diarization.json",
                     "_live.json",
+                    "_speakers.json",
                 ]
                 for suffix in siblings {
                     try? FileManager.default.removeItem(atPath: baseNoExt + suffix)

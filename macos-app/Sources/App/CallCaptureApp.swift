@@ -89,6 +89,9 @@ final class AppModel {
     var selectedSpeechLanguage: SpokenLanguage = .auto
     var selectedNotesLanguage: SpokenLanguage = .auto
     var liveMicrophoneEnabled = true
+    /// True from just before capture starts until it has stopped: the system tap records
+    /// every process, so session playback must stay silent for the whole window.
+    var playbackBlocked = false
     private(set) var recordingTransitionInProgress = false
     let liveMeeting = LiveMeetingController()
 
@@ -432,6 +435,8 @@ final class AppModel {
                 }
                 captureManager.liveBuffer = liveMeeting.buffer
             } else { captureManager.liveBuffer = nil }
+            playbackBlocked = true
+            SessionAudioPlayer.pauseAll()
             try await captureManager.startCapture(
                 outputPath: outputURL,
                 outputDeviceUID: output.uid,
@@ -442,6 +447,7 @@ final class AppModel {
         } catch {
             state = .error
             lastError = error.localizedDescription
+            playbackBlocked = false
             captureManager.liveBuffer = nil
             liveMeeting.cancel()
             Self.logger.error("Failed to start recording: \(error)")
@@ -451,6 +457,8 @@ final class AppModel {
     @MainActor private func stopRecording() async {
         do {
             try await captureManager.stopCapture()
+            // Stays blocked if stopping failed: the tap may still be running.
+            playbackBlocked = false
             captureManager.liveBuffer = nil
             if liveMeeting.model.document.isRecording {
                 await liveMeeting.stop(finalOffset: Double(captureManager.liveFrameOffset) / 16_000,

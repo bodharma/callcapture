@@ -6,6 +6,7 @@ import SwiftUI
 @available(macOS 14.2, *)
 struct ConversationInsightsView: View {
     let analysis: ConversationAnalysis
+    var names = SpeakerNames()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -43,7 +44,7 @@ struct ConversationInsightsView: View {
     @ViewBuilder
     private func speakerRow(_ speaker: SpeakerStats) -> some View {
         HStack(spacing: 8) {
-            Text(speaker.label)
+            Text(names.display(speaker.label) ?? speaker.label)
                 .font(.caption)
                 .fontWeight(speaker.isSelf ? .semibold : .regular)
                 .frame(width: 90, alignment: .leading)
@@ -82,7 +83,7 @@ struct ConversationInsightsView: View {
                 .foregroundStyle(.secondary)
             ForEach(items, id: \.self) { item in
                 Label {
-                    Text(item).font(.caption)
+                    Text(names.apply(to: item)).font(.caption)
                 } icon: {
                     Image(systemName: checkbox ? "square" : "circle.fill")
                         .font(.system(size: checkbox ? 10 : 6))
