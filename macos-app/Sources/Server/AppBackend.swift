@@ -11,7 +11,7 @@ import os
 /// File-derived reads (transcript, note, analysis, speaker names, live map)
 /// have default implementations below that work from the `Session` record
 /// alone, so every backend, including the test fake, runs the same code.
-protocol AppBackend: Sendable {
+protocol AppBackend: SettingsBackend {
     /// Every session, newest first.
     func sessions() async -> [Session]
     func session(id: String) async -> Session?
@@ -51,9 +51,13 @@ enum BackendError: Error, Equatable {
     case busy(String)
     /// There is no note to save or export yet.
     case nothingToSave
+    /// The app model is gone (the app is quitting).
+    case unavailable
 }
 
 extension AppBackend {
+    func isOnline() async -> Bool { await systemStatus().online }
+
     func requireSession(_ id: String) async throws -> Session {
         guard let session = await session(id: id) else { throw BackendError.notFound }
         return session

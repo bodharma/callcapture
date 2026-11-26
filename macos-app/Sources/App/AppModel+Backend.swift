@@ -21,7 +21,15 @@ final class AppModelBackend: AppBackend {
         reference.withLockUnchecked { $0.model = model }
     }
 
-    private var model: AppModel? { reference.withLockUnchecked { $0.model } }
+    /// Model downloads started from the web UI (see `AppModelBackend+Settings`).
+    let modelDownloads = ModelDownloads()
+
+    var model: AppModel? { reference.withLockUnchecked { $0.model } }
+
+    func requireModel() throws -> AppModel {
+        guard let model else { throw BackendError.unavailable }
+        return model
+    }
 
     static var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"

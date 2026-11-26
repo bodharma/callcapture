@@ -49,6 +49,11 @@ enum NetworkPolicy {
         provider == .openrouter && isOnline
     }
 
+    /// Shown under a disabled model-list Refresh, and in the API's offline answer.
+    static let catalogRefreshOfflineReason = "Offline — refreshing needs an internet connection."
+    /// Shown under a disabled OpenRouter "Test connection".
+    static let keyTestOfflineReason = "Offline — testing the key needs internet."
+
     static func downloadBlockReason(isOnline: Bool) -> String? {
         isOnline ? nil : "Offline — downloading needs an internet connection. Downloaded models work offline."
     }

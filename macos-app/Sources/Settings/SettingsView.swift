@@ -89,7 +89,7 @@ struct SettingsView: View {
                 OpenRouterTestRow(apiKey: settings.openRouterApiKey)
                     .disabled(!appModel.connectivity.isOnline)
                 if !appModel.connectivity.isOnline {
-                    Text("Offline — testing the key needs internet.")
+                    Text(NetworkPolicy.keyTestOfflineReason)
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

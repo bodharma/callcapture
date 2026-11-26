@@ -19,6 +19,7 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     private var deleteFailure: BackendError?
     private var vaultDirectory: URL?
     private var status = SystemStatus(online: true, recording: false, version: "test")
+    private var settingsSide: FakeSettings?
 
     init(sessions: [Session] = []) {
         store = sessions
@@ -45,6 +46,18 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     func failDelete(with error: BackendError?) { lock.withLock { deleteFailure = error } }
     func saveVault(into directory: URL?) { lock.withLock { vaultDirectory = directory } }
     func setStatus(_ value: SystemStatus) { lock.withLock { status = value } }
+    func setOnline(_ online: Bool) {
+        lock.withLock { status = SystemStatus(online: online, recording: status.recording, version: status.version) }
+    }
+    /// Created on first use, so tests that never touch settings never open a database.
+    var settings: FakeSettings {
+        lock.withLock {
+            if let settingsSide { return settingsSide }
+            let created = FakeSettings()
+            settingsSide = created
+            return created
+        }
+    }
 
     // MARK: AppBackend
 
@@ -112,4 +125,20 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     }
 
     func systemStatus() async -> SystemStatus { lock.withLock { status } }
+
+    // MARK: SettingsBackend
+
+    func settingsSnapshot() async throws -> SettingsDTO { settings.snapshot(isOnline: await isOnline()) }
+
+    func updateSettings(_ patch: SettingsPatch) async throws -> SettingsDTO {
+        settings.update(patch, isOnline: await isOnline())
+    }
+
+    func resetCosts() async throws -> SettingsDTO { settings.resetCosts(isOnline: await isOnline()) }
+    func setSecret(_ key: SecretKey, value: String) async throws { settings.setSecret(key, value: value) }
+    func testOpenRouterKey() async throws -> KeyTestResult { settings.testKey() }
+    func catalog() async -> CatalogState { settings.catalog() }
+    func refreshCatalog(force: Bool) async { settings.refresh(force: force) }
+    func pickFolder(for setting: FolderSetting) async throws -> String? { try settings.pick(setting) }
+    func startModelDownload(_ kind: ModelDownloadKind) async throws { try settings.startDownload(kind) }
 }

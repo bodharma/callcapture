@@ -92,7 +92,7 @@ private func addSpeakerRoutes(to router: Router<BasicRequestContext>, backend: a
             guard let label = context.parameters.get("label")?.removingPercentEncoding,
                 try await knownSpeakers(session, backend, names: SpeakerNames()).contains(where: { $0.label == label })
             else { return APIResponse.notFound() }
-            guard let body = try? await decodeJSON(RenameBody.self, from: request) else {
+            guard let body = try? await RequestBody.decode(RenameBody.self, from: request) else {
                 return APIResponse.badRequest(#"Send {"name": "…"}; an empty name restores the label."#)
             }
             try await backend.renameSpeaker(id: session.id, label: label, name: body.name)
@@ -175,13 +175,6 @@ private func knownSpeakers(
 
 private struct RenameBody: Decodable {
     let name: String
-}
-
-private let maxJSONBodyBytes = 16 * 1024
-
-private func decodeJSON<T: Decodable>(_ type: T.Type, from request: Request) async throws -> T {
-    let buffer = try await request.body.collect(upTo: maxJSONBodyBytes)
-    return try JSONDecoder().decode(type, from: Data(buffer.readableBytesView))
 }
 
 private func exportContentType(_ format: SessionExport.Format) -> String {

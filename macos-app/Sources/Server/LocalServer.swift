@@ -36,6 +36,8 @@ func makeRouter(
     }
     addSystemRoutes(to: router, backend: backend)
     addSessionsRoutes(to: router, backend: backend)
+    addSettingsRoutes(to: router, backend: backend)
+    addCatalogRoutes(to: router, backend: backend)
     addStaticRoutes(to: router, webDirectory: webDirectory)
     return router
 }

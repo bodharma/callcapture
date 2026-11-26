@@ -41,6 +41,13 @@ struct ModelPickerView: View {
     }
 
     private var warning: String? {
+        ModelSelectionWarning.text(role: role, selection: selection, snapshot: snapshot, isOnline: isOnline)
+    }
+}
+
+/// Why a role's chosen OpenRouter model may not work; shared by the SwiftUI picker and the web API.
+enum ModelSelectionWarning {
+    static func text(role: LLMRole, selection: String, snapshot: ModelCatalogSnapshot?, isOnline: Bool) -> String? {
         guard let snapshot else {
             return isOnline ? nil : "Needs internet to load the model list. Current choice: \(selection)."
         }
@@ -78,7 +85,7 @@ struct ModelCatalogStatusRow: View {
                     .disabled(!isOnline || refreshing)
             }
             if !isOnline {
-                Text("Offline — refreshing needs an internet connection.")
+                Text(NetworkPolicy.catalogRefreshOfflineReason)
             } else if let problem {
                 Text(problem)
             }
