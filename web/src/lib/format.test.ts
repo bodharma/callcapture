@@ -19,6 +19,14 @@ describe("format", () => {
     expect(format.usd(0)).toBe("$0.00");
   });
 
+  it("signed shows a sign and fixed decimals, never -0", () => {
+    expect(format.signed(0.42)).toBe("+0.42");
+    expect(format.signed(-0.2)).toBe("-0.20");
+    expect(format.signed(0.34, 1)).toBe("+0.3");
+    expect(format.signed(-0.27, 1)).toBe("-0.3");
+    expect(format.signed(-0.004)).toBe("+0.00");
+  });
+
   it("length reads in seconds, minutes or hours", () => {
     expect(format.length(45)).toBe("45 s");
     expect(format.length(2772)).toBe("46 min");

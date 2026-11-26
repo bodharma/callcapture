@@ -21,6 +21,13 @@ export function usd(value: number): string {
   return `$${text}`;
 }
 
+/** A signed fixed-point label, like the app's: 0.42 → "+0.42", -0.27 (1 digit) → "-0.3"; never "-0". */
+export function signed(value: number, digits = 2): string {
+  const text = Math.abs(value).toFixed(digits);
+  const zero = Number(text) === 0;
+  return `${value < 0 && !zero ? "-" : "+"}${text}`;
+}
+
 /** Recording length: "45 s", "46 min", "1 h 12 min". */
 export function length(seconds: number): string {
   if (seconds < 60) return `${Math.max(0, Math.floor(seconds))} s`;

@@ -17,6 +17,8 @@ const note = [
   "",
   "See [the plan](https://example.com/plan).",
   "",
+  "Also [proto](//evil.example/x), [slash](/\\evil.example) and ![pic](//evil.example/p.png).",
+  "",
   '<img src="x" onerror="alert(1)">',
   "",
   "![chart](https://tracker.example/pixel.png)",
@@ -87,6 +89,27 @@ describe("SessionDetail", () => {
     expect(screen.queryByText("type: call")).toBeNull();
     expect(screen.getByText("Draft the release notes")).toBeTruthy();
     expect(container.querySelector('input[type="checkbox"]')).toBeNull();
+  });
+
+  it("opens protocol-relative and backslash note links outside the app", async () => {
+    api();
+    const { container } = renderAt("/sessions/S1");
+    fireEvent.click(await screen.findByRole("button", { name: "Full note" }));
+    const proto = await screen.findByRole("link", { name: "proto" });
+    expect(new URL(proto.getAttribute("href") ?? "", window.location.href).origin).toBe("http://evil.example");
+    expect(proto.getAttribute("target")).toBe("_blank");
+    expect(proto.getAttribute("rel")).toBe("noopener noreferrer");
+    const image = screen.getByRole("link", { name: "pic" });
+    expect(image.getAttribute("target")).toBe("_blank");
+    // Every note link that resolves to another origin must open outside the app.
+    for (const link of Array.from(container.querySelectorAll<HTMLAnchorElement>(".note a"))) {
+      const origin = new URL(link.getAttribute("href") ?? "", window.location.href).origin;
+      if (origin !== window.location.origin) {
+        expect(link.getAttribute("target")).toBe("_blank");
+        expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+      }
+    }
+    expect(container.querySelector("img")).toBeNull();
   });
 
   it("offers each export only when there is something to export", async () => {

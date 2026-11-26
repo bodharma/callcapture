@@ -1,8 +1,8 @@
 import { lazy, Suspense, useId, useState, type ReactNode } from "react";
-import { Link } from "react-router";
-import type { AnalysisDTO, MarkerKind, SpeakerDTO, SpeakerStats, TapeMarker } from "../../api/types";
+import type { AnalysisDTO, MarkerKind, SpeakerDTO, TapeMarker } from "../../api/types";
 import { timecode } from "../../lib/format";
 import { usePlayer } from "./player";
+import { SummarySide } from "./SummarySide";
 import "./Summary.css";
 
 // The Markdown renderer is the largest dependency; load it only when the note is opened.
@@ -17,9 +17,10 @@ interface SummaryProps {
 }
 
 /**
- * The structured lists first (summary, decisions, action items, open questions,
- * then your notes, key points and takeaways), and the full vault note below in
- * a disclosure that starts closed. Decisions, questions and your notes are
+ * The structured lists first (summary, decisions, action items, recommended
+ * actions, open questions, then your notes, key points and takeaways), and the
+ * full vault note below in a disclosure that starts closed. The side column
+ * shows the overall tone and who spoke. Decisions, questions and your notes are
  * timed only where the live map recorded them (tape markers).
  */
 export function Summary({ status, analysis, note, markers, speakers }: SummaryProps) {
@@ -35,15 +36,14 @@ export function Summary({ status, analysis, note, markers, speakers }: SummaryPr
         {insights?.summary && <p className="summary-lead">{insights.summary}</p>}
         <TimedList title="Decided" kind="decision" markers={timed("decision")} />
         <PlainList title="To do" items={insights?.actionItems} />
+        <PlainList title="Recommended actions" items={insights?.recommendedActions} />
         <TimedList title="Open questions" kind="question" markers={timed("question")} />
         <TimedList title="Your notes" kind="note" markers={timed("note")} />
         <PlainList title="Key points" items={insights?.keyPoints} />
         <PlainList title="Takeaways" items={insights?.takeaways} />
         {note && <FullNote markdown={note} />}
       </div>
-      {analysis && analysis.speakers.length > 0 && (
-        <WhoSpoke stats={analysis.speakers} speakers={speakers} />
-      )}
+      {analysis && <SummarySide analysis={analysis} speakers={speakers} />}
     </div>
   );
 }
@@ -129,44 +129,5 @@ function PlainList({ title, items }: { title: string; items: string[] | undefine
         ))}
       </ul>
     </Block>
-  );
-}
-
-const SEGMENTS = 25;
-
-const isYou = (name: string): boolean => name.trim().toLowerCase() === "you";
-
-function WhoSpoke({ stats, speakers }: { stats: SpeakerStats[]; speakers: SpeakerDTO[] }) {
-  const id = useId();
-  const sorted = [...stats].sort((a, b) => b.talkRatio - a.talkRatio);
-  const unnamed = speakers.find((speaker) => !speaker.renamed);
-  return (
-    <aside className="who" aria-labelledby={id}>
-      <h2 id={id} className="block-title">
-        Who spoke
-      </h2>
-      {sorted.map((speaker) => {
-        const share = Math.round(Math.min(1, Math.max(0, speaker.talkRatio)) * 100);
-        const lit = Math.round((share / 100) * SEGMENTS);
-        return (
-          <div key={speaker.label} className="who-row">
-            <span className="who-head">
-              <span>{speaker.isSelf && !isYou(speaker.name) ? `${speaker.name} (you)` : speaker.name}</span>
-              <span className="who-share">{share}%</span>
-            </span>
-            <span className="meter" role="img" aria-label={`${speaker.name} spoke ${share}% of the time`}>
-              {Array.from({ length: SEGMENTS }, (_, i) => (
-                <span key={i} className={i < lit ? "meter-seg meter-seg--on" : "meter-seg"} />
-              ))}
-            </span>
-          </div>
-        );
-      })}
-      {unnamed && (
-        <Link className="who-name" to="?tab=speakers">
-          Name {unnamed.label}
-        </Link>
-      )}
-    </aside>
   );
 }

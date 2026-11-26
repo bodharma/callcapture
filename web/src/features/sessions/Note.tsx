@@ -1,7 +1,20 @@
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-const isExternal = (href: string | undefined): boolean => !!href && /^(https?:|mailto:)/i.test(href);
+/**
+ * True when `href` leaves the app's origin once resolved: absolute URLs,
+ * protocol-relative `//host`, backslash `/\host` and `mailto:` all count.
+ * Unparseable links count as internal (react-markdown has already dropped
+ * dangerous schemes).
+ */
+export function isExternalHref(href: string | undefined, base: string = window.location.href): boolean {
+  if (!href) return false;
+  try {
+    return new URL(href, base).origin !== new URL(base).origin;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * The note text comes from transcripts, so it is untrusted:
@@ -14,7 +27,7 @@ const isExternal = (href: string | undefined): boolean => !!href && /^(https?:|m
  */
 const components: Components = {
   a: ({ node: _node, href, children, ...rest }) =>
-    isExternal(href) ? (
+    isExternalHref(href) ? (
       <a {...rest} href={href} target="_blank" rel="noopener noreferrer">
         {children}
       </a>
@@ -26,7 +39,7 @@ const components: Components = {
   img: ({ src, alt }) => {
     const label = alt?.trim() || "Image";
     const href = typeof src === "string" ? src : undefined;
-    return isExternal(href) ? (
+    return isExternalHref(href) ? (
       <a className="note-image" href={href} target="_blank" rel="noopener noreferrer">
         {label}
       </a>
