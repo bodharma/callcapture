@@ -68,6 +68,10 @@ final class AppModel {
     @ObservationIgnored
     static weak var shared: AppModel?
 
+    /// Loopback HTTP server behind the local web UI.
+    @ObservationIgnored
+    let localServer = LocalServer(backend: AppModelBackend())
+
     var state: AppState = .idle
     var lastError: String?
     var lastSessionTitle: String?
@@ -130,6 +134,7 @@ final class AppModel {
         self.settingsManager = SettingsManager(database: database)
         self.catalogSnapshot = modelCatalog.cached()
         AppModel.shared = self
+        startLocalServer()
         Task { @MainActor [weak self] in await self?.refreshModelCatalogIfUseful() }
         observeAudioDevices()
         refreshAudioDevices()
@@ -222,6 +227,20 @@ final class AppModel {
         )
     }
 
+    /// Starts the loopback server. A failure is logged and never fatal: the
+    /// menu-bar app keeps recording without its web UI.
+    private func startLocalServer() {
+        let server = localServer
+        Task {
+            do {
+                let port = try await server.start()
+                Self.logger.info("Local server listening on 127.0.0.1:\(port)")
+            } catch {
+                Self.logger.error("Local server failed to start: \(error.localizedDescription)")
+            }
+        }
+    }
+
     /// Synchronously releases audio capture and any running worker process.
     /// Called from `AppDelegate` on app termination and catchable signals.
     func teardownForExit() {
@@ -229,6 +248,9 @@ final class AppModel {
         transcriptionTask?.cancel()
         pythonBridge.cancelCurrentJob()
         captureManager.emergencyStop()
+        // Best effort: the process is exiting, which closes the socket anyway.
+        let server = localServer
+        Task { await server.stop() }
         // AppDelegate dispatches termination and signal handlers on the main queue.
         MainActor.assumeIsolated { liveMeeting.cancel() }
     }
