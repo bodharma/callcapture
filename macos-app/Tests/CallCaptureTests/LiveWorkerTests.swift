@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CallCapture
@@ -84,22 +85,86 @@ struct LiveWorkerTests {
         #expect(!worker.isRunning)
     }
 
+    @Test("concurrently finished workers release their pipes and deallocate")
+    func concurrentWorkersRelease() async throws {
+        // Regression: with many workers exiting at once, `Process.waitUntilExit()` on a pool thread
+        // sometimes never returned, so the reader kept the worker and its pipe descriptors alive forever.
+        try await Self.runWorkerOnce() // warm-up: process-lifetime descriptors are created on first launch
+        let baseline = PipeSnapshot.current()
+        var workers: [WeakWorker] = []
+        for _ in 0..<12 {
+            workers += try await withThrowingTaskGroup(of: WeakWorker.self) { group in
+                for _ in 0..<24 { group.addTask { try await Self.runWorkerOnce() } }
+                return try await group.reduce(into: []) { $0.append($1) }
+            }
+        }
+        var extra = PipeSnapshot.current().subtracting(baseline)
+        var alive = workers.filter { $0.worker != nil }.count
+        let deadline = Date().addingTimeInterval(TestTiming.subprocessWait)
+        while (!extra.isEmpty || alive > 0) && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+            extra = PipeSnapshot.current().subtracting(baseline)
+            alive = workers.filter { $0.worker != nil }.count
+        }
+        #expect(alive == 0, "\(alive) finished workers were never released")
+        #expect(extra.isEmpty, "leaked pipe descriptors: \(extra.sorted { $0.fd < $1.fd })")
+    }
+
     @Test("stderr drain ends cleanly and no descriptors leak across worker runs")
     func stderrLifecycle() async throws {
-        func openDescriptors() -> Int { (try? FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count) ?? 0 }
-        let baseline = openDescriptors()
-        for _ in 0..<5 {
-            let worker = LiveWorkerProcess(configuration: WorkerProcessConfiguration(
-                executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
-                arguments: ["-u", "-c", "import sys,json\nsys.stderr.write('x'*300000)\nprint(json.dumps({'type':'ready'}),flush=True)\nfor l in sys.stdin: break"],
-                directory: nil, environment: [:]))
-            let events = try worker.start()
-            for try await event in events { if case .ready = event { break } }
-            try await worker.finish(timeout: TestTiming.subprocessWait)
-        }
-        var now = openDescriptors()
+        // Identify pipes by (fd, kernel pipe handle) via libproc. Counting every descriptor (or using
+        // fstat/S_IFIFO, which reports kqueues as FIFOs on macOS) also counts unrelated long-lived
+        // descriptors that other suites open in parallel (SwiftNIO kqueues from the server tests).
+        // Warm up first: Foundation/libdispatch lazily create process-lifetime descriptors on the first
+        // worker launch, which must not count against the measured runs.
+        try await Self.runWorkerOnce()
+        let baseline = PipeSnapshot.current()
+        for _ in 0..<5 { try await Self.runWorkerOnce() }
+        // Pipes other suites opened meanwhile close when their workers finish; ours must too.
+        var extra = PipeSnapshot.current().subtracting(baseline)
         let deadline = Date().addingTimeInterval(TestTiming.subprocessWait)
-        while now > baseline && Date() < deadline { try await Task.sleep(for: .milliseconds(50)); now = openDescriptors() }
-        #expect(now <= baseline, "leaked \(now - baseline) descriptors")
+        while !extra.isEmpty && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+            extra = PipeSnapshot.current().subtracting(baseline)
+        }
+        #expect(extra.isEmpty, "leaked pipe descriptors: \(extra.sorted { $0.fd < $1.fd })")
+    }
+
+    /// One full worker lifecycle: noisy stderr, ready event, graceful stop.
+    @discardableResult
+    private static func runWorkerOnce() async throws -> WeakWorker {
+        let worker = LiveWorkerProcess(configuration: WorkerProcessConfiguration(
+            executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
+            arguments: ["-u", "-c", "import sys,json\nsys.stderr.write('x'*300000)\nprint(json.dumps({'type':'ready'}),flush=True)\nfor l in sys.stdin: break"],
+            directory: nil, environment: [:]))
+        let events = try worker.start()
+        for try await event in events { if case .ready = event { break } }
+        try await worker.finish(timeout: TestTiming.subprocessWait)
+        return WeakWorker(worker: worker)
+    }
+}
+
+struct WeakWorker: @unchecked Sendable { weak var worker: LiveWorkerProcess? }
+
+/// Open pipe descriptors of this process, identified by descriptor number plus kernel pipe handle.
+struct PipeSnapshot: Hashable {
+    let fd: Int32
+    let handle: UInt64
+
+    static func current() -> Set<PipeSnapshot> {
+        let pid = getpid()
+        let size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        guard size > 0 else { return [] }
+        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(size) / MemoryLayout<proc_fdinfo>.stride + 16)
+        let written = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, Int32(fds.count * MemoryLayout<proc_fdinfo>.stride))
+        guard written > 0 else { return [] }
+        var result = Set<PipeSnapshot>()
+        for info in fds.prefix(Int(written) / MemoryLayout<proc_fdinfo>.stride)
+        where info.proc_fdtype == UInt32(PROX_FDTYPE_PIPE) {
+            var pipe = pipe_fdinfo()
+            let n = proc_pidfdinfo(pid, info.proc_fd, PROC_PIDFDPIPEINFO, &pipe, Int32(MemoryLayout<pipe_fdinfo>.size))
+            if n > 0 { result.insert(PipeSnapshot(fd: info.proc_fd, handle: pipe.pipeinfo.pipe_handle)) }
+        }
+        return result
     }
 }
