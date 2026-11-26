@@ -121,6 +121,20 @@ describe("Settings", () => {
     expect(document.body.textContent).not.toContain("sk-or-v1-synthetic");
   });
 
+  it("clears an old key test result when the key is replaced", async () => {
+    settingsApi({
+      "PUT /api/settings/secrets/openrouter": { status: 204 },
+      "POST /api/settings/secrets/openrouter/test": { ok: true, message: "The key works." },
+    });
+    renderAt("/settings/ai-notes");
+    fireEvent.click(await screen.findByRole("button", { name: "Test connection" }));
+    expect(await screen.findByText("The key works.")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("OpenRouter key"), { target: { value: "sk-or-v1-other" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save OpenRouter key" }));
+    await screen.findByText("Key saved.");
+    expect(screen.queryByText("The key works.")).toBeNull();
+  });
+
   it("shows a refused typed folder as a sentence under the field and keeps what was typed", async () => {
     const fetchFn = settingsApi({
       "PATCH /api/settings": {
@@ -143,6 +157,34 @@ describe("Settings", () => {
     expect(bodyOf(fetchFn, "PATCH /api/settings")).toEqual({ recording: { outputDirectory: "/Users/test/Missing" } });
   });
 
+  it("Enter retries a refused value once the problem is fixed, and leaving the field doesn't resend it", async () => {
+    let attempts = 0;
+    const fetchFn = settingsApi({
+      "PATCH /api/settings": () => {
+        attempts += 1;
+        return attempts === 1
+          ? {
+              status: 400,
+              body: { error: "invalid", message: "The output folder doesn't exist. Choose an existing folder." },
+            }
+          : settingsFixture((s) => (s.recording.outputDirectory = "/Users/test/Recordings"));
+      },
+    });
+    renderAt("/settings/recording");
+    const field = (await screen.findByLabelText("Output folder")) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "/Users/test/Recordings" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await screen.findByRole("alert");
+    fireEvent.blur(field);
+    expect(calls(fetchFn).filter((c) => c === "PATCH /api/settings")).toHaveLength(1);
+
+    // The user creates the folder, then presses Enter again.
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(calls(fetchFn).filter((c) => c === "PATCH /api/settings")).toHaveLength(2);
+    expect(field.value).toBe("/Users/test/Recordings");
+  });
+
   it("saves a folder chosen in the app's folder panel; a cancelled pick saves nothing", async () => {
     let answer: string | null = null;
     const fetchFn = settingsApi({
@@ -160,7 +202,8 @@ describe("Settings", () => {
     fireEvent.click(choose);
     await waitFor(() => expect(calls(fetchFn)).toContain("PATCH /api/settings"));
     expect(bodyOf(fetchFn, "PATCH /api/settings")).toEqual({ vault: { obsidianVault: "/Users/test/Notes" } });
-    expect(((await screen.findByLabelText("Obsidian vault")) as HTMLInputElement).value).toBe("/Users/test/Notes");
+    const vault = (await screen.findByLabelText("Obsidian vault")) as HTMLInputElement;
+    await waitFor(() => expect(vault.value).toBe("/Users/test/Notes"));
   });
 
   it("offline, model downloads are disabled with the app's reason", async () => {

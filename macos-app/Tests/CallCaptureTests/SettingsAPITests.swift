@@ -208,6 +208,11 @@ struct SettingsAPITests {
             let saved = try await patch("recording", "outputDirectory", folder.path + "/")
             #expect(saved.status == .ok, "\(bodyText(saved))")
             #expect(jsonValue(try jsonObject(saved), "recording.outputDirectory") as? String == folder.path)
+            // `~` is expanded to the home folder and stored as an absolute path.
+            let home = try await patch("vault", "obsidianVault", "~")
+            #expect(home.status == .ok, "\(bodyText(home))")
+            #expect(jsonValue(try jsonObject(home), "vault.obsidianVault") as? String
+                == URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path)
             // A vault only has to exist: read-only is fine.
             let vaultSaved = try await patch("vault", "obsidianVault", readOnly.path)
             #expect(vaultSaved.status == .ok, "\(bodyText(vaultSaved))")

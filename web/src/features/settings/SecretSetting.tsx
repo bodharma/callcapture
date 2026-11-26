@@ -10,13 +10,15 @@ interface SecretProps {
   hint?: ReactNode;
   /** Shown after the save controls (Test connection for OpenRouter). */
   children?: ReactNode;
+  /** After a key is saved or removed, so results about the old key can be cleared. */
+  onChanged?: () => void;
 }
 
 /**
  * A write-only key field: never prefilled, cleared after saving, and the app only
  * ever says whether a key is saved.
  */
-export function SecretSetting({ label, name, set, hint, children }: SecretProps) {
+export function SecretSetting({ label, name, set, hint, children, onChanged }: SecretProps) {
   const id = useId();
   const [value, setValue] = useState("");
   const [done, setDone] = useState<string | null>(null);
@@ -33,6 +35,7 @@ export function SecretSetting({ label, name, set, hint, children }: SecretProps)
       onSuccess: () => {
         setValue("");
         setDone("Key saved.");
+        onChanged?.();
       },
     });
   };
@@ -73,7 +76,12 @@ export function SecretSetting({ label, name, set, hint, children }: SecretProps)
             onClick={() => {
               save.reset();
               setDone(null);
-              remove.mutate(undefined, { onSuccess: () => setDone("Key removed.") });
+              remove.mutate(undefined, {
+                onSuccess: () => {
+                  setDone("Key removed.");
+                  onChanged?.();
+                },
+              });
             }}
           >
             Remove

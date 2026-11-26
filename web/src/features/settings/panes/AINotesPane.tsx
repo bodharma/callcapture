@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { errorText } from "../../../api/client";
 import { useCatalog, useRefreshCatalog, useTestKey } from "../api";
 import { OfflineReason, PaneHeader, Section, SelectSetting, TextSetting } from "../controls";
@@ -39,6 +39,8 @@ export function AINotesPane({ settings, online }: PaneProps) {
 
 function OpenRouterNotes({ settings, online }: PaneProps) {
   const catalog = useCatalog();
+  // A new or removed key makes an earlier test result stale: remount the test.
+  const [keyVersion, setKeyVersion] = useState(0);
   useRefreshWhenStale(online);
   return (
     <>
@@ -47,8 +49,14 @@ function OpenRouterNotes({ settings, online }: PaneProps) {
         name="openrouter"
         set={settings.secrets.openrouter.set}
         hint="Used for AI notes and the independent model scores."
+        onChanged={() => setKeyVersion((version) => version + 1)}
       >
-        <KeyTest set={settings.secrets.openrouter.set} online={online} reason={settings.offlineReasons.testKey} />
+        <KeyTest
+          key={keyVersion}
+          set={settings.secrets.openrouter.set}
+          online={online}
+          reason={settings.offlineReasons.testKey}
+        />
       </SecretSetting>
       <Section title="Models">
         <div className="model-cards">

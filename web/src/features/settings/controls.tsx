@@ -148,22 +148,32 @@ export function SelectSetting({ label, hint, value, options, patch }: SelectProp
 
 /**
  * Local typing state for a text setting: refetches never overwrite what the user is
- * typing, and a refused value stays in the field so it can be fixed.
+ * typing, and a refused value stays in the field so it can be fixed. After a save the
+ * field keeps the typed text until the app's new value arrives, so the old value never
+ * flashes back in between.
  */
 function useDraft(value: string) {
   const [draft, setDraft] = useState(value);
   const [editing, setEditing] = useState(false);
+  // The value shown when a save succeeded; the field waits until `value` moves on.
+  const [savedOver, setSavedOver] = useState<string | null>(null);
   useEffect(() => {
-    if (!editing) setDraft(value);
-  }, [value, editing]);
+    if (editing || (savedOver !== null && value === savedOver)) return;
+    setSavedOver(null);
+    setDraft(value);
+  }, [value, editing, savedOver]);
   return {
     draft,
     edit: (text: string) => {
       setEditing(true);
       setDraft(text);
     },
-    settle: () => setEditing(false),
+    settle: () => {
+      setSavedOver(value);
+      setEditing(false);
+    },
     revert: () => {
+      setSavedOver(null);
       setEditing(false);
       setDraft(value);
     },
@@ -181,7 +191,7 @@ interface TextProps {
   mono?: boolean;
   /** A short value (a rate) rather than a path or id. */
   narrow?: boolean;
-  /** Extra controls after the field (the folder chooser). */
+  /** Extra controls after the field (the folder chooser); their commits count as explicit. */
   after?: (commit: (value: string) => void, busy: boolean) => ReactNode;
   /** A problem from outside the field (the folder chooser failing). */
   extraError?: string | null;
@@ -204,12 +214,14 @@ export function TextSetting({
   const id = useId();
   const draft = useDraft(value);
   const [refusal, setRefusal] = useState<string | null>(null);
-  // The last text sent: Enter then blur, or a refused value, is not sent twice.
+  // The last text sent and not yet saved. Leaving the field never resends it (Enter
+  // then blur, or a refused value); Enter or the chooser does, once nothing is pending,
+  // so a refused folder can be retried after it has been created.
   const [sent, setSent] = useState<string | null>(null);
   const error = refusal ?? save.error ?? extraError;
 
-  const commit = (text: string) => {
-    if (text === sent) return;
+  const commit = (text: string, explicit = false) => {
+    if (text === sent && (save.isPending || !explicit)) return;
     draft.edit(text);
     if (text === value) {
       setRefusal(null);
@@ -224,7 +236,12 @@ export function TextSetting({
     }
     setRefusal(null);
     setSent(text);
-    save.mutate(change, { onSuccess: draft.settle });
+    save.mutate(change, {
+      onSuccess: () => {
+        setSent(null);
+        draft.settle();
+      },
+    });
   };
 
   const describedBy = [hint ? `${id}-hint` : null, error ? `${id}-error` : null].filter(Boolean).join(" ");
@@ -248,7 +265,7 @@ export function TextSetting({
           }}
           onBlur={() => commit(draft.draft)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") commit(draft.draft);
+            if (event.key === "Enter") commit(draft.draft, true);
             if (event.key === "Escape") {
               setSent(null);
               draft.revert();
@@ -257,7 +274,7 @@ export function TextSetting({
             }
           }}
         />
-        {after?.(commit, save.isPending)}
+        {after?.((text) => commit(text, true), save.isPending)}
       </div>
       <FieldError id={`${id}-error`} error={error} />
     </SettingRow>
