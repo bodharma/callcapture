@@ -104,3 +104,36 @@ def test_payload_for_auto_uses_language_detection_not_code():
 def test_payload_carries_audio_url():
     p = _assemblyai_transcript_payload("u://x.wav", "en")
     assert p["audio_url"] == "u://x.wav"
+
+
+def _fake_assemblyai(poll_body):
+    def request(method, url, **kwargs):
+        if url.endswith("/upload"):
+            return {"upload_url": "https://upload.invalid/u"}
+        if method == "POST":
+            return {"id": "t1"}
+        return poll_body
+    return request
+
+
+def test_no_spoken_audio_is_an_empty_transcript_not_a_failure(tmp_path, monkeypatch):
+    """A stem with sound but no speech (music, system sounds) must not fail the job."""
+    from app.transcribe import remote_engine
+    audio = tmp_path / "stem.wav"
+    audio.write_bytes(b"RIFF")
+    monkeypatch.setattr(remote_engine, "_assemblyai_request", _fake_assemblyai({
+        "status": "error",
+        "error": "language_detection cannot be performed on files with no spoken audio.",
+    }))
+    assert remote_engine._transcribe_assemblyai(str(audio), "auto", "key", "job") == []
+
+
+def test_other_assemblyai_errors_still_fail(tmp_path, monkeypatch):
+    import pytest
+    from app.transcribe import remote_engine
+    audio = tmp_path / "stem.wav"
+    audio.write_bytes(b"RIFF")
+    monkeypatch.setattr(remote_engine, "_assemblyai_request", _fake_assemblyai({
+        "status": "error", "error": "Invalid API key"}))
+    with pytest.raises(RuntimeError, match="Invalid API key"):
+        remote_engine._transcribe_assemblyai(str(audio), "auto", "key", "job")

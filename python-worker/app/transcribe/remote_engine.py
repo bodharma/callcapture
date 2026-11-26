@@ -143,8 +143,6 @@ def _transcribe_assemblyai(
     utterance and are mapped straight to `TranscriptSegment.speaker` so the
     worker does NOT need its sidecar diarizer pass for this provider.
     """
-    import httpx
-
     base = _PROVIDER_CONFIG["assemblyai"]["base_url"]
     headers = {"authorization": api_key}
 
@@ -185,9 +183,13 @@ def _transcribe_assemblyai(
         if status == "completed":
             break
         if status == "error":
-            raise RuntimeError(
-                f"AssemblyAI transcription failed: {body.get('error', 'unknown')}"
-            )
+            error = str(body.get("error", "unknown"))
+            # Sound without speech (music, system sounds, an idle stem) is a valid
+            # empty result; failing here discarded the other stem's speech.
+            if "no spoken audio" in error.lower():
+                report_progress(job_id, 0.95, "no_speech_detected")
+                return []
+            raise RuntimeError(f"AssemblyAI transcription failed: {error}")
         time.sleep(_ASSEMBLYAI_POLL_SECONDS)
 
     report_progress(job_id, 0.9, "parsing_response")

@@ -6,6 +6,8 @@ import json
 import os
 import signal
 import sys
+import wave
+from functools import lru_cache
 from typing import Any
 
 import click
@@ -59,20 +61,54 @@ def _check_ping(raw: str) -> bool:
     return False
 
 
+# ponytail: catches digital silence only (e.g. the system tap while nothing plays,
+# or a capture that wrote no frames). A quiet-room mic still goes to the provider.
+_SILENCE_PEAK = 4  # int16 units, about -78 dBFS
+_NO_AUDIO = (
+    "The recording contains no audio (microphone and system audio are silent). "
+    "Check CallCapture's Microphone and System Audio Recording permissions in "
+    "System Settings > Privacy & Security, then record again."
+)
+
+
+@lru_cache(maxsize=None)  # the worker handles one job per process
+def _is_silent(path: str) -> bool:
+    """True only for a readable 16-bit WAV that never rises above the silence floor."""
+    import numpy as np
+
+    try:
+        with wave.open(path) as w:
+            if w.getsampwidth() != 2:
+                return False
+            while chunk := w.readframes(1 << 16):
+                if np.abs(np.frombuffer(chunk, dtype=np.int16).astype(np.int32)).max() > _SILENCE_PEAK:
+                    return False
+    except (wave.Error, OSError, EOFError):
+        return False  # unknown is not silent: let the engine report a real error
+    return True
+
+
 def _transcribe_and_attribute(request: JobRequest) -> list[TranscriptSegment]:
     """Transcribe stems when present (mic = You, system = remote, attributed by
-    the diarization sidecar), else transcribe the single mixed file as remote."""
+    the diarization sidecar), else transcribe the single mixed file as remote.
+    Digitally silent stems are skipped: a provider rejects them ("no spoken
+    audio"), which used to fail the job and discard the other stem's speech."""
     base = os.path.splitext(request.audio_path)[0]
     mic_path = f"{base}_mic.wav"
     system_path = f"{base}_system.wav"
 
     if os.path.exists(mic_path) and os.path.exists(system_path):
-        mic_segments = transcribe_path(mic_path, request)
-        system_segments = transcribe_path(system_path, request)
+        mic_silent, system_silent = _is_silent(mic_path), _is_silent(system_path)
+        if mic_silent and system_silent:
+            raise RuntimeError(_NO_AUDIO)
+        mic_segments = [] if mic_silent else transcribe_path(mic_path, request)
+        system_segments = [] if system_silent else transcribe_path(system_path, request)
         turns = load_diarization_turns(system_path)
         return attribute_segments(mic_segments, system_segments, turns, self_label="You")
 
     # No stems: transcribe the mixed/single file.
+    if _is_silent(request.audio_path):
+        raise RuntimeError(_NO_AUDIO)
     segments = transcribe(request)
     if request.recording_type == "voice_memo":
         # A solo memo is the user speaking.
@@ -131,11 +167,13 @@ def _write_analysis(
 
 
 def _count_stems(audio_path: str) -> int:
-    """2 when mic+system stems exist (both transcribed), else 1."""
+    """Number of files actually sent for transcription: each non-silent stem when
+    mic+system stems exist, else the single file."""
     base = os.path.splitext(audio_path)[0]
-    mic = f"{base}_mic.wav"
-    system = f"{base}_system.wav"
-    return 2 if os.path.exists(mic) and os.path.exists(system) else 1
+    stems = [f"{base}_mic.wav", f"{base}_system.wav"]
+    if not all(os.path.exists(p) for p in stems):
+        return 1
+    return max(1, sum(not _is_silent(p) for p in stems))
 
 
 def _compute_costs(request: JobRequest, duration_sec: float | None) -> dict:
@@ -178,7 +216,7 @@ def _run_pipeline(request: JobRequest) -> JobResult:
         return JobResult(
             job_id=request.job_id,
             status="failed",
-            error_message="No transcript segments produced",
+            error_message="No speech was detected in the recording, so no transcript was produced.",
             warnings=warnings,
         )
 
