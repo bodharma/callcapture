@@ -9,6 +9,11 @@ product priority: live transcription and conversation/topic navigation.
 
 ## Features
 
+### Live model catalog and offline behaviour
+- **Status:** implemented on branch feat/live-model-catalog (unreleased). Details: [FEATURES.md](FEATURES.md#implemented-locally-unreleased-2026-11-26-branch-featlive-model-catalog).
+- **Remaining:** capture one real `/api/v1/benchmarks?source=artificial-analysis` response with the user's key and use it as the test fixture; compare `ModelCostEstimate` constants with recorded live-notes spend after a few meetings; GUI check of the picker and offline captions.
+
+
 ### Session review (backlog group 2)
 - **Status:** transcript + click-to-seek playback, rename speakers and search across all sessions merged to `main` (unreleased); used in the user's local test build on 2026-11-26. Details: [FEATURES.md](FEATURES.md#implemented-locally-unreleased-2026-11-26-branch-featsession-review).
 - **Open in this group:** waveform, merge speakers, capture health/interruption recovery (e.g. warn before transcribing when a stem is silent).

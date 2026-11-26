@@ -171,6 +171,37 @@ automated test.
 **Not verified:** the GUI, actual playback/seek/speed, search UX and focus scrolling were not
 exercised (no app launch). Not checked against real recordings.
 
+## Implemented locally, unreleased (2026-11-26, branch feat/live-model-catalog)
+
+Design: [live model catalog](superpowers/specs/2026-11-26-live-model-catalog-design.md);
+plan: [plan](superpowers/plans/2026-11-26-live-model-catalog.md).
+
+- **Live model list.** Settings → Post-Processing chooses a *Final notes model* and a
+  separate *Live notes model* from OpenRouter's current list (`/api/v1/models`), cached
+  for 24 h, in a sortable, searchable table: per-meeting-hour cost for each role (≈,
+  token model in `ModelCostEstimate`), Artificial Analysis Intelligence / Multilingual /
+  Strategy & Ops scores via OpenRouter `/api/v1/benchmarks` (attributed), score-derived
+  tags (Highest quality, Strong multilingual, Budget), context size and a JSON filter.
+  A selection OpenRouter no longer offers is flagged; the hard-coded list is gone (four
+  retired Claude slugs migrate to successors).
+- **Live notes spend.** Each automatic-notes request records tokens and OpenRouter's
+  reported cost; the live window shows "Live notes so far". An unlisted live model is
+  refused before any request.
+- **Offline.** A network monitor disables network-only controls with an inline reason
+  (automatic memos, live model download, cloud Transcribe/Re-process/Retry, catalog
+  refresh, key test). Recording, local Whisper, live local speech and manual notes are
+  unaffected. Auto-process keeps cloud recordings until online; local Whisper offline
+  writes rule-based notes and says so.
+- **No silent AI fallbacks.** Offline, missing key or an LLM error (e.g. a retired
+  model's 404) now adds a session warning shown in the detail view (DB `v6_sessionWarning`).
+- **Live transcript hygiene.** Silent windows skip Whisper; `[BLANK_AUDIO]`-style
+  annotations are stripped.
+
+**Receipts.** Swift 153 tests / 37 suites; Python 254 (also in the CI-equivalent venv).
+**Not verified:** GUI (picker sheet, offline captions), a real `/benchmarks` response
+(the test fixture is the documented sample; capture one with the user's key), the
+token-model constants against measured live spend.
+
 ## Reference releases used for prioritisation
 
 | Application | Inspected release |
