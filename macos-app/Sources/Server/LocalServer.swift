@@ -4,7 +4,8 @@ import os
 
 /// Routes for the loopback HTTP server that backs the local web UI.
 func makeRouter(
-    backend: any AppBackend, security: ServerSecurity
+    backend: any AppBackend, security: ServerSecurity,
+    webDirectory: URL? = defaultWebDirectory()
 ) -> Router<BasicRequestContext> {
     let router = Router<BasicRequestContext>()
     router.add(middleware: LoopbackGuardMiddleware(security: security))
@@ -33,6 +34,7 @@ func makeRouter(
             body: .init(byteBuffer: .init(string: #"{"ok":true}"#))
         )
     }
+    addStaticRoutes(to: router, webDirectory: webDirectory)
     return router
 }
 

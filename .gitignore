@@ -54,3 +54,4 @@ CallCapture-*.zip
 *.cer
 *.key
 p12_password.txt
+web/node_modules/

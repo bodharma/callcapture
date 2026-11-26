@@ -1,3 +1,4 @@
+import Foundation
 import HTTPTypes
 import Hummingbird
 
@@ -9,9 +10,10 @@ import Hummingbird
 /// the Host header into the authority), so tests exercise the production
 /// branch, including a missing authority.
 func makeServerApp(
-    _ security: ServerSecurity, authority: String?
+    _ security: ServerSecurity, authority: String?, webDirectory: URL? = nil
 ) -> some ApplicationProtocol {
-    let router = makeRouter(backend: FakeBackend(), security: security).buildResponder()
+    let router = makeRouter(
+        backend: FakeBackend(), security: security, webDirectory: webDirectory).buildResponder()
     return Application(
         responder: CallbackResponder<BasicRequestContext> { request, context in
             var head = request.head

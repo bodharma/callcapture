@@ -60,6 +60,24 @@ if [[ "$worker_needs_build" == "1" ]]; then
         && pyinstaller --clean --noconfirm packaging/call-capture-worker.spec )
 fi
 
+# Rebuild the web UI when web/dist is missing or older than any web source.
+WEB_SRC="$APP_DIR/../web"
+web_needs_build=0
+if [[ ! -f "$WEB_SRC/dist/index.html" ]]; then
+    web_needs_build=1
+elif [[ -n "$(find "$WEB_SRC/src" "$WEB_SRC/package-lock.json" "$WEB_SRC/index.html" "$WEB_SRC/vite.config.ts" -newer "$WEB_SRC/dist/index.html" 2>/dev/null | head -1)" ]]; then
+    echo "===> web source newer than web/dist — rebuilding"
+    web_needs_build=1
+fi
+if [[ "$web_needs_build" == "1" ]]; then
+    if ! command -v npm >/dev/null 2>&1; then
+        echo "error: web/dist is missing or stale and npm is not installed (install Node 22+)" >&2
+        exit 1
+    fi
+    echo "===> building web UI"
+    ( cd "$WEB_SRC" && npm ci && npm run build )
+fi
+
 echo "===> assembling .app"
 "$SCRIPT_DIR/assemble-app.sh" "$CONFIG" "$WORKER_DIST"
 

@@ -27,6 +27,23 @@ jobs:
       - name: Run tests
         run: pytest
 
+  web:
+    name: Web UI (build & vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npx vitest run
+
   macos-app:
     name: macOS app (swift build & test)
     # Hummingbird 2.29 (local server) declares swift-tools-version 6.2, which needs Xcode 26.

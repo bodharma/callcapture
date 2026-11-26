@@ -1,0 +1,32 @@
+{
+  "name": "callcapture-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fontsource/barlow-condensed": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/instrument-sans": "^5.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^26.6.11",
+    "@types/react": "^18.3.32",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^6.3.0",
+    "jsdom": "^31.0.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.4.0",
+    "vitest": "^5.1.2"
+  }
+}
