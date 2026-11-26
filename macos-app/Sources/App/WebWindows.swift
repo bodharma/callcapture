@@ -13,6 +13,30 @@ private let sharedWebDataStore = WKWebsiteDataStore.nonPersistent()
 
 private let webHostLogger = Logger(subsystem: "com.callcapture.app", category: "WebHost")
 
+/// What a web host does with a navigation request.
+enum NavigationDecision: Equatable {
+    case allow
+    case openExternally
+    case cancel
+
+    /// Pure policy: only the app's own loopback origin loads in the web view,
+    /// only http(s) may leave for the default browser, and everything else
+    /// (file:, data:, blob:, app/custom schemes) is dropped, since page text
+    /// can come from hostile call content.
+    static func decide(url: URL?, ownPort: Int?) -> NavigationDecision {
+        guard let url, let scheme = url.scheme?.lowercased() else { return .cancel }
+        if scheme == "about" { return url.absoluteString == "about:blank" ? .allow : .cancel }
+        guard scheme == "http" || scheme == "https" else { return .cancel }
+        if scheme == "http", let ownPort, url.port == ownPort,
+            url.user == nil, url.password == nil,
+            let host = url.host, host == "127.0.0.1" || host == "localhost"
+        {
+            return .allow
+        }
+        return .openExternally
+    }
+}
+
 /// Navigation and download policy shared by the archive window and live panel.
 @MainActor
 final class WebHostDelegate: NSObject, WKNavigationDelegate, WKDownloadDelegate {
@@ -22,26 +46,21 @@ final class WebHostDelegate: NSObject, WKNavigationDelegate, WKDownloadDelegate 
         self.ownPort = ownPort
     }
 
-    /// Only the app's own loopback origin may load in the web view.
-    func isOwnOrigin(_ url: URL) -> Bool {
-        guard let port = ownPort(), url.scheme == "http", url.port == port,
-            let host = url.host
-        else { return false }
-        return host == "127.0.0.1" || host == "localhost"
-    }
-
     func webView(
         _ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
     ) {
-        guard let url = navigationAction.request.url else { return decisionHandler(.cancel) }
-        // about:blank and similar internal loads are not network navigations.
-        if url.scheme == "about" { return decisionHandler(.allow) }
-        if !isOwnOrigin(url) {
-            NSWorkspace.shared.open(url)
-            return decisionHandler(.cancel)
+        let url = navigationAction.request.url
+        switch NavigationDecision.decide(url: url, ownPort: ownPort()) {
+        case .allow:
+            decisionHandler(navigationAction.shouldPerformDownload ? .download : .allow)
+        case .openExternally:
+            if let url { NSWorkspace.shared.open(url) }
+            decisionHandler(.cancel)
+        case .cancel:
+            webHostLogger.debug("Blocked navigation to \(url?.scheme ?? "nil", privacy: .public) URL")
+            decisionHandler(.cancel)
         }
-        decisionHandler(navigationAction.shouldPerformDownload ? .download : .allow)
     }
 
     func webView(
