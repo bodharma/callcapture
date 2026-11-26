@@ -41,7 +41,7 @@ import Testing
         let samples = [Float](repeating: 0, count: 16_000)
         #expect(controller.buffer.offer(samples: samples, source: .mic, start: 0))
         #expect(controller.buffer.offer(samples: samples, source: .system, start: 0))
-        await controller.stop(finalOffset: 1, sources: [.mic, .system], timeout: 3)
+        await controller.stop(finalOffset: 1, sources: [.mic, .system], timeout: TestTiming.subprocessWait)
         #expect(Set(controller.model.document.turns.map(\.source)) == Set([.mic, .system]))
         #expect(controller.model.document.turns.count == 2)
         #expect(!controller.model.document.isRecording)
@@ -66,7 +66,7 @@ import Testing
         let controller = LiveMeetingController()
         defer { controller.cancel() }
         controller.start(session: session, bridge: bridge, modelName: "base", speechLanguage: "en", notesLanguage: "en", configuration: configuration)
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(TestTiming.subprocessWait)
         while !controller.model.document.warnings.contains(where: { $0.contains("Synthetic unavailable model") }) && Date() < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
@@ -101,7 +101,7 @@ import Testing
         controller.cancel()
         controller.start(session: session, bridge: bridge, modelName: "base", speechLanguage: "en", notesLanguage: "en", configuration: configuration)
         #expect(controller.buffer.offer(samples: [Float](repeating: 0, count: 16_000), source: .system, start: 0))
-        await controller.stop(finalOffset: 1, sources: [.system], timeout: 3)
+        await controller.stop(finalOffset: 1, sources: [.system], timeout: TestTiming.subprocessWait)
         #expect(controller.model.document.turns.count == 1)
     }
 
@@ -124,12 +124,12 @@ import Testing
         controller.start(session: session, bridge: bridge, modelName: "base", speechLanguage: "en", notesLanguage: "en", configuration: configuration)
         let samples = [Float](repeating: 0, count: 16_000)
         for offset in 0..<3 { #expect(controller.buffer.offer(samples: samples, source: .mic, start: Double(offset))) }
-        let deadline = Date().addingTimeInterval(2)
+        let deadline = Date().addingTimeInterval(TestTiming.subprocessWait)
         while controller.model.partials[.mic] == nil && Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
         #expect(controller.model.partials[.mic] == "Provisional")
         #expect(controller.model.document.turns.isEmpty)
         for offset in 3..<6 { #expect(controller.buffer.offer(samples: samples, source: .mic, start: Double(offset))) }
-        await controller.stop(finalOffset: 6, sources: [.mic], timeout: 3)
+        await controller.stop(finalOffset: 6, sources: [.mic], timeout: TestTiming.subprocessWait)
         #expect(controller.model.document.turns.map(\.id) == ["mic-0"])
         #expect(controller.model.document.turns.first?.text == "Committed")
         #expect(controller.model.partials[.mic] == nil || controller.model.partials[.mic] == "")
@@ -155,12 +155,12 @@ import Testing
         let samples = [Float](repeating: 0, count: 16_000)
         // Six seconds on one source produce the first (blocking) request.
         for offset in 0..<3 { #expect(controller.buffer.offer(samples: samples, source: .system, start: Double(offset))) }
-        var deadline = Date().addingTimeInterval(10)
+        var deadline = Date().addingTimeInterval(TestTiming.subprocessWait)
         while !FileManager.default.fileExists(atPath: marker.path) && Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
         #expect(FileManager.default.fileExists(atPath: marker.path), "worker never reached blocked inference")
         // Only now, with the drain loop awaiting inference, build a >12s backlog.
         for offset in 3..<16 { _ = controller.buffer.offer(samples: samples, source: .system, start: Double(offset)) }
-        deadline = Date().addingTimeInterval(3)
+        deadline = Date().addingTimeInterval(TestTiming.subprocessWait)
         while !controller.status.contains("behind") && Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
         #expect(controller.status.contains("behind"))
         await controller.stop(finalOffset: 16, sources: [.system], timeout: 0.3)

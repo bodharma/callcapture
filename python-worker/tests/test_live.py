@@ -204,10 +204,18 @@ def test_model_absence_never_downloads(monkeypatch, tmp_path):
         live.load_model("base", "auto")
 
 
-def test_invalid_model_name_is_not_a_path_or_download_target():
+def test_invalid_model_name_is_not_a_path_or_download_target(monkeypatch, tmp_path):
+    import sys
+    import types
     from app.transcribe import live
+    # CI installs no native pywhispercpp; the check only needs its model catalogue.
+    constants = types.ModuleType("pywhispercpp.constants")
+    constants.AVAILABLE_MODELS = ["base"]
+    constants.MODELS_DIR = str(tmp_path)
+    monkeypatch.setitem(sys.modules, "pywhispercpp.constants", constants)
     with pytest.raises(ValueError, match="Unsupported Whisper model"):
         live._model_path("../../another-model")
+    assert live._model_path("base") == tmp_path / "ggml-base.bin"
 
 
 def test_checked_model_rejects_native_failure_before_reading_stale_segments(monkeypatch, tmp_path):
@@ -235,8 +243,12 @@ def test_checked_model_rejects_native_failure_before_reading_stale_segments(monk
 
 
 def test_prepare_publishes_only_validated_model(monkeypatch, tmp_path):
-    import pywhispercpp.utils
+    import sys
+    import types
     from app.transcribe import live
+    # CI installs no native pywhispercpp; stand in for its downloader module.
+    utils = types.ModuleType("pywhispercpp.utils")
+    monkeypatch.setitem(sys.modules, "pywhispercpp.utils", utils)
     target = tmp_path / "ggml-base.bin"
     monkeypatch.setattr(live, "_model_path", lambda name: target)
 
@@ -245,7 +257,7 @@ def test_prepare_publishes_only_validated_model(monkeypatch, tmp_path):
         path.write_bytes(b"invalid HTTP response")
         return str(path)
 
-    monkeypatch.setattr(pywhispercpp.utils, "download_model", download)
+    utils.download_model = download
     monkeypatch.setattr(live, "_create_model", lambda *_: (_ for _ in ()).throw(RuntimeError("invalid model")))
     with pytest.raises(RuntimeError, match="invalid model"):
         live.prepare_model("base")

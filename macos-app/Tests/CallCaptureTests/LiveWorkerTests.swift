@@ -2,6 +2,13 @@ import Foundation
 import Testing
 @testable import CallCapture
 
+/// Upper bound for waits that end as soon as a synthetic Python worker responds.
+/// Concurrent cold `python3` launches on CI runners took ~3 s; local runs take <1 s.
+/// Tests that deliberately check a bounded stop keep their own short timeouts.
+enum TestTiming {
+    static let subprocessWait: Double = 20
+}
+
 @Suite("Live worker wire protocol")
 struct LiveWorkerTests {
     @Test("finals preserve source, immutable identity and audio offsets")
@@ -60,7 +67,7 @@ struct LiveWorkerTests {
             return turns
         }
         try await worker.transcribe(LivePCMChunk(source: .system, start: 9, samples: [0, 0]), id: "tail")
-        try await worker.finish(timeout: 2)
+        try await worker.finish(timeout: TestTiming.subprocessWait)
         let turns = await observed.value
         #expect(turns.map(\.id) == ["tail"])
         #expect(turns.first?.start == 9)
@@ -88,10 +95,10 @@ struct LiveWorkerTests {
                 directory: nil, environment: [:]))
             let events = try worker.start()
             for try await event in events { if case .ready = event { break } }
-            try await worker.finish(timeout: 3)
+            try await worker.finish(timeout: TestTiming.subprocessWait)
         }
         var now = openDescriptors()
-        let deadline = Date().addingTimeInterval(3)
+        let deadline = Date().addingTimeInterval(TestTiming.subprocessWait)
         while now > baseline && Date() < deadline { try await Task.sleep(for: .milliseconds(50)); now = openDescriptors() }
         #expect(now <= baseline, "leaked \(now - baseline) descriptors")
     }
