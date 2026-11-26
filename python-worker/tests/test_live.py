@@ -11,7 +11,8 @@ from click.testing import CliRunner
 
 def frame(*, id="c1", source="mic", start=10.0, final=True, samples=None, **updates):
     if samples is None:
-        samples = np.zeros(16000 * 6, dtype="<f4")
+        # Speech-level signal by default; silent windows are skipped before inference.
+        samples = (np.sin(np.linspace(0, 2400 * np.pi, 16000 * 6)) * 0.1).astype("<f4")
     request = dict(id=id, source=source, start=start, final=final,
                    sample_rate=16000, pcm_f32le=base64.b64encode(samples.tobytes()).decode())
     request.update(updates)
@@ -301,3 +302,21 @@ def test_module_entrypoint_exits_nonzero_on_model_error(command):
                             text=True, timeout=15)
     assert result.returncode == 1
     assert json.loads(result.stdout)["type"] == "error"
+
+
+def test_silent_windows_skip_inference_and_emit_no_turn(monkeypatch):
+    """Whisper turns silence into "[BLANK_AUDIO]" or stock phrases; never ask it."""
+    silent = np.zeros(16000 * 6, dtype="<f4")
+    events, model, _, result = run(monkeypatch, [frame(samples=silent), frame(id="c2", samples=silent, final=False)],
+                                   Model([]))
+    assert result == 0
+    assert model.calls == []
+    assert [e["type"] for e in events if e["type"] in ("turn", "partial")] == []
+    assert [e["id"] for e in events if e["type"] == "chunk_done"] == ["c1", "c2"]
+
+
+def test_non_speech_annotations_are_not_turns(monkeypatch):
+    model = Model([[segment("[BLANK_AUDIO]"), segment("Hello [MUSIC] there (laughs)", 200, 400),
+                    segment("♪ ♪", 400, 500)]])
+    events, _, _, _ = run(monkeypatch, [frame()], model)
+    assert [e["text"] for e in events if e["type"] == "turn"] == ["Hello there"]

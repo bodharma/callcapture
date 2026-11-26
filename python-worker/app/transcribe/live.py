@@ -20,6 +20,17 @@ import numpy as np
 
 SAMPLE_RATE = 16000
 MAX_SAMPLES = SAMPLE_RATE * 15
+# ponytail: energy gate, not a VAD. Windows below about -50 dBFS RMS skip inference:
+# Whisper turns them into "[BLANK_AUDIO]" or stock phrases ("Thank you for watching.").
+# Speech quieter than the gate is missing from the live view only (the recording keeps
+# it); switch to a real VAD (e.g. Silero) if that shows up.
+SILENCE_RMS = 0.003
+# Whisper's non-speech annotations: [BLANK_AUDIO], [MUSIC], (laughs), music notes.
+_NON_SPEECH = re.compile(r"\[[^\]]*\]|\([^)]*\)|[\u266a\u266b]+")
+
+
+def speech_text(text: str) -> str:
+    return " ".join(_NON_SPEECH.sub(" ", text).split())
 MAX_LINE_BYTES = 1_300_000
 
 
@@ -149,6 +160,10 @@ class LiveTranscriber:
             if fingerprint != self.finalized[key]:
                 raise ValueError("A finalized chunk id cannot be reused for different audio")
             return []
+        if float(np.sqrt(np.mean(np.square(chunk.pcm, dtype=np.float64)))) < SILENCE_RMS:
+            if chunk.final:
+                self._remember(key, fingerprint)
+            return []
         with model_logs_to_stderr():
             segments = self.model.transcribe(chunk.pcm)
         duration = chunk.pcm.size / SAMPLE_RATE
@@ -157,7 +172,7 @@ class LiveTranscriber:
             start, end = float(segment.t0) / 100, float(segment.t1) / 100
             if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end < start:
                 raise ValueError("Whisper returned invalid segment timestamps")
-            text = segment.text.strip()
+            text = speech_text(segment.text)
             if text and start < duration:
                 candidates.append((index, chunk.start + start, chunk.start + min(end, duration), text))
         if not chunk.final:
@@ -192,10 +207,13 @@ class LiveTranscriber:
             tail = (tail + [re.sub(r"\W", "", word).casefold() for word in words])[-128:]
         self.ends[chunk.source] = end_of_source
         self.tails[chunk.source] = tail
+        self._remember(key, fingerprint)
+        return events
+
+    def _remember(self, key: tuple[str, str], fingerprint: str) -> None:
         self.finalized[key] = fingerprint
         if len(self.finalized) > 512:
             self.finalized.popitem(last=False)
-        return events
 
 
 def emit(output: TextIO, event: dict) -> None:
