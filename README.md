@@ -69,10 +69,23 @@ brew upgrade --cask callcapture
 
 Notarized by Apple — it opens with a normal double-click, no Gatekeeper bypass.
 
-> The packaged app uses **cloud transcription** (AssemblyAI / Deepgram) plus full
-> on-device analysis (diarization, sentiment, emotion, insights). **On-device
-> Whisper** is available in source builds only for now — see
-> [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+> The packaged app uses cloud transcription (AssemblyAI / Deepgram) plus full
+> on-device analysis. The frozen worker now also bundles `pywhispercpp` with its
+> native libraries, so local Whisper and the optional local **live meeting** mode
+> can run from a locally built bundle. This was verified only with the CLI and
+> synthetic speech; a published release containing it does not exist yet, and the
+> released cask has not been re-checked. Models are not bundled: use the app's
+> "Download live model" button (or `call-capture-worker prepare-live-model`).
+
+### Live meeting workspace (local, optional)
+
+Enable "Local live meeting" before recording. Microphone ("You") and system audio
+("Remote audio") are transcribed locally in 6 s windows with 3 s provisional previews
+and 1 s lookback. A topic tree with short memos, manual notes/pins/edits, "What did I
+miss?" and "Back to live" sit beside the transcript; the map is saved beside the audio as
+`<audio>_live.json` and can be exported to Markdown. Automatic topic notes need an
+explicit provider/model and are off otherwise. Auto/mixed-language speech is
+experimental. Live failure never stops the recording. See [docs/FEATURES.md](docs/FEATURES.md).
 
 ## Quick start (from source)
 
@@ -91,6 +104,16 @@ cd ..
 ```
 
 A waveform icon appears in the menu bar. Start a call, hit record, stop, and let it transcribe. Configure engine, languages, API keys, and export folders in **Settings**.
+
+Output and microphone use **System Default** and show the current device name.
+Choose another device in either picker, or turn off **Include Microphone** for
+system-audio-only recordings. Connecting headphones or changing the Mac's default
+updates the choices; disconnected overrides fall back to the default before the
+next recording. An active recording keeps the devices it started with;
+unplugging one of those devices may interrupt its audio.
+
+See the [prioritised feature backlog](docs/FEATURES.md) for proposed upgrades and
+their completion checks.
 
 ## Privacy
 

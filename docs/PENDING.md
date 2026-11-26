@@ -1,14 +1,18 @@
 # Pending Work
 
-Open threads / parked items. Last updated 2026-06-09.
+Open threads / parked items. Last updated 2026-11-26.
+
+See [the prioritised feature backlog](FEATURES.md) for the competitive upgrade
+roadmap, including the verified transcription, speaker-label, output-profile and
+vault-export correctness gaps. Repair those as the foundation for the main
+product priority: live transcription and conversation/topic navigation.
 
 ## Features
 
-### Live transcript (next up — spec done, needs plan)
-- **Status:** design **approved**, no implementation plan yet.
-- **Spec:** [`docs/superpowers/specs/2026-06-01-live-transcript-design.md`](superpowers/specs/2026-06-01-live-transcript-design.md)
-- **Gist:** optional real-time transcript via **AssemblyAI streaming** of the **system audio**, toggle per call (default in Settings). **Preview only** — batch pipeline stays authoritative. Live is **best-effort + fully isolated** (a stream failure must never affect capture/batch). Streaming cost (`live_minutes × rate`, editable in Pricing) is added to the session's transcription cost.
-- **Resume:** review the spec → run `superpowers:writing-plans` → subagent-driven implementation. New Swift: `LiveTranscriber` (WebSocket), `LiveTranscriptView`; tee 16 kHz mono system buffers from `AudioCaptureManager`'s IO proc; Settings toggle + streaming rate; guards (AssemblyAI key present, language ∈ en/es/de/fr/pt/it).
+### Live conversation navigation (main product priority)
+- **Status:** implemented locally and unreleased on branch feat/smart-audio-defaults (uncommitted). Exact behaviour, test counts and limits: [FEATURES.md](FEATURES.md#implemented-locally-unreleased-2026-11-26-branch-featsmart-audio-defaults).
+- **Design:** [Live conversation map](superpowers/specs/2026-11-26-live-conversation-map-design.md).
+- **Remaining before release:** user-run GUI/real-capture check (mic + system, history sheet, notes-language menu), provider note quality/cost check, bilingual quality evaluation, frozen release build/notarization containing pywhispercpp, commit/review of this change. Reconcile bookmarks during final processing is not implemented.
 
 ## Bugs / cleanups
 

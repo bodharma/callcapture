@@ -1,7 +1,11 @@
 # Live Transcript (AssemblyAI Streaming) — Design
 
 **Date:** 2026-06-01
-**Status:** Approved (design), pending implementation plan
+**Status:** Historical approved preview design; scope superseded on 2026-11-26 by [Live conversation map](2026-11-26-live-conversation-map-design.md).
+
+> The user now prioritises both-side live transcription, persistent live memos
+> and a navigable conversation/topics tree. The remote-only, disposable-preview
+> restrictions below describe the earlier design, not the current requirements.
 **Scope:** Optional real-time transcript preview during a call, streamed from the **system audio** to **AssemblyAI's streaming API**, toggled per call. The saved transcript is unchanged (batch pipeline, on stop). Live streaming cost is added to the session's cost.
 
 ---
