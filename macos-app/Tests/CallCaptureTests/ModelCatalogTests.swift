@@ -161,4 +161,17 @@ struct ModelCatalogTests {
         try Data("not json".utf8).write(to: cache)
         #expect(service.cached() == nil)
     }
+
+    @Test("scores always carry attribution, even when the response omits meta.citation")
+    func attributionFallback() {
+        let scored = CatalogModel(id: "m", canonicalSlug: nil, name: "M", promptPricePerToken: 0, completionPricePerToken: 0,
+                                  contextLength: 1, supportsJSON: true,
+                                  scores: ModelScores(intelligence: 50, multilingual: nil, strategyAndOps: nil))
+        var snapshot = ModelCatalogSnapshot(models: [scored], modelsFetchedAt: Date(), scoresCitation: nil)
+        #expect(snapshot.attribution == "Source: Artificial Analysis (artificialanalysis.ai) via OpenRouter (openrouter.ai/rankings).")
+        snapshot.scoresCitation = "Source: custom citation."
+        #expect(snapshot.attribution == "Source: custom citation.")
+        snapshot.models[0].scores = nil
+        #expect(snapshot.attribution == nil)
+    }
 }

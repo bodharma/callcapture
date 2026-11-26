@@ -271,6 +271,9 @@ private struct DirectoryPickerRow: View {
 /// Python worker, so the download runs the `prepare_emotion` worker command via the bridge.
 @available(macOS 14.2, *)
 private struct EmotionModelsRow: View {
+    @Environment(AppModel.self) private var appModel
+    private var offlineReason: String? { NetworkPolicy.downloadBlockReason(isOnline: appModel.connectivity.isOnline) }
+
     let bridge: PythonBridge
     @Binding var modelsReady: Bool
 
@@ -287,7 +290,10 @@ private struct EmotionModelsRow: View {
             Button(isDownloading ? "Downloading…" : "Download emotion model") {
                 download()
             }
-            .disabled(isDownloading || modelsReady)
+            .disabled(isDownloading || modelsReady || offlineReason != nil)
+            if let offlineReason, !modelsReady {
+                Text(offlineReason).font(.caption).foregroundStyle(.secondary)
+            }
 
             if let errorMessage {
                 Text(errorMessage).font(.caption).foregroundStyle(.red)
@@ -332,6 +338,9 @@ private struct EmotionModelsRow: View {
 /// only runs once models are downloaded (see DiarizationService gating).
 @available(macOS 14.2, *)
 private struct DiarizationModelsRow: View {
+    @Environment(AppModel.self) private var appModel
+    private var offlineReason: String? { NetworkPolicy.downloadBlockReason(isOnline: appModel.connectivity.isOnline) }
+
     let service: DiarizationService
     @Binding var modelsReady: Bool
 
@@ -348,7 +357,10 @@ private struct DiarizationModelsRow: View {
             Button(isDownloading ? "Downloading…" : "Download diarization models") {
                 download()
             }
-            .disabled(isDownloading || modelsReady)
+            .disabled(isDownloading || modelsReady || offlineReason != nil)
+            if let offlineReason, !modelsReady {
+                Text(offlineReason).font(.caption).foregroundStyle(.secondary)
+            }
 
             if let errorMessage {
                 Text(errorMessage)

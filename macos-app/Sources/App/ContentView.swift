@@ -91,7 +91,7 @@ struct ContentView: View {
                                                      modelName: appModel.settingsManager.whisperModel.rawValue)
                 }.disabled(appModel.liveMeeting.isPreparing || !appModel.connectivity.isOnline)
                 if !appModel.connectivity.isOnline && !appModel.liveMeeting.isPreparing {
-                    Text("Offline — downloading a model needs internet. A downloaded model works offline.")
+                    Text(NetworkPolicy.downloadBlockReason(isOnline: false) ?? "")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 if appModel.liveMeeting.isPreparing {

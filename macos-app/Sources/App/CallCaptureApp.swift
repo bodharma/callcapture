@@ -130,6 +130,7 @@ final class AppModel {
         self.settingsManager = SettingsManager(database: database)
         self.catalogSnapshot = modelCatalog.cached()
         AppModel.shared = self
+        Task { @MainActor [weak self] in await self?.refreshModelCatalogIfUseful() }
         observeAudioDevices()
         refreshAudioDevices()
     }
@@ -143,6 +144,14 @@ final class AppModel {
             .appendingPathComponent("CallCapture", isDirectory: true)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         return base.appendingPathComponent("model-catalog.json")
+    }
+
+    /// Keeps the cached catalog current (at most daily) so the live-model guard does not
+    /// check a list from weeks ago; no request for the Local provider or offline.
+    @MainActor func refreshModelCatalogIfUseful() async {
+        guard NetworkPolicy.shouldRefreshCatalog(provider: settingsManager.llmProvider,
+                                                 isOnline: connectivity.isOnline) else { return }
+        await refreshModelCatalog(force: false)
     }
 
     /// Refreshes the OpenRouter catalog (at most daily unless forced); on failure the
@@ -432,6 +441,8 @@ final class AppModel {
 
     @MainActor private func startRecording() async {
         notice = nil
+        // Freshen a stale catalog in the background; this meeting uses what is cached now.
+        Task { [weak self] in await self?.refreshModelCatalogIfUseful() }
         do {
             // Serialize the device snapshot with HAL notifications and picker changes.
             let (output, mic) = try await MainActor.run {

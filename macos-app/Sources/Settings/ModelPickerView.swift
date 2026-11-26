@@ -189,7 +189,7 @@ private struct ModelTableSheet: View {
             }
             .frame(minHeight: 320)
             VStack(alignment: .leading, spacing: 2) {
-                if let citation = snapshot?.scoresCitation { Text(citation) }
+                if let attribution = snapshot?.attribution { Text(attribution) }
                 Text(ModelCostEstimate.explanation)
             }
             .font(.caption2)

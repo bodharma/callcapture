@@ -44,6 +44,15 @@ enum NetworkPolicy {
         }
     }
 
+    /// The OpenRouter catalog is fetched only when it is in use and reachable.
+    static func shouldRefreshCatalog(provider: LLMProvider, isOnline: Bool) -> Bool {
+        provider == .openrouter && isOnline
+    }
+
+    static func downloadBlockReason(isOnline: Bool) -> String? {
+        isOnline ? nil : "Offline — downloading needs an internet connection. Downloaded models work offline."
+    }
+
     /// Non-nil when transcribing with `engine` needs a network the Mac does not have.
     static func blockReason(engine: String, isOnline: Bool) -> String? {
         !isOnline && engine == TranscriptionEngine.remote.rawValue ? ConnectivityMonitor.offlineReason : nil

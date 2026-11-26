@@ -29,6 +29,14 @@ struct ModelCatalogSnapshot: Codable, Equatable, Sendable {
     var scoresProblem: String?
 
     func model(id: String) -> CatalogModel? { models.first { $0.id == id } }
+
+    /// Required wording when Artificial Analysis scores are republished (CC BY 4.0).
+    static let attributionFallback = "Source: Artificial Analysis (artificialanalysis.ai) via OpenRouter (openrouter.ai/rankings)."
+
+    /// The attribution to show whenever any score is shown; nil when there are none.
+    var attribution: String? {
+        models.contains { $0.scores != nil } ? (scoresCitation ?? Self.attributionFallback) : nil
+    }
 }
 
 enum ModelCatalogError: LocalizedError, Equatable {

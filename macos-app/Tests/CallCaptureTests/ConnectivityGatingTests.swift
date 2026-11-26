@@ -27,6 +27,19 @@ struct ConnectivityGatingTests {
         #expect(NetworkPolicy.Decision.transcribe.workerEnvironment.isEmpty)
     }
 
+    @Test("the catalog refreshes only for OpenRouter and only online")
+    func catalogRefreshPolicy() {
+        #expect(NetworkPolicy.shouldRefreshCatalog(provider: .openrouter, isOnline: true))
+        #expect(!NetworkPolicy.shouldRefreshCatalog(provider: .openrouter, isOnline: false))
+        #expect(!NetworkPolicy.shouldRefreshCatalog(provider: .local, isOnline: true))
+    }
+
+    @Test("every model download is blocked offline with a reason")
+    func downloadBlockReason() {
+        #expect(NetworkPolicy.downloadBlockReason(isOnline: false) == "Offline — downloading needs an internet connection. Downloaded models work offline.")
+        #expect(NetworkPolicy.downloadBlockReason(isOnline: true) == nil)
+    }
+
     @MainActor
     @Test("the monitor reports what it is told and starts online")
     func monitorState() {
