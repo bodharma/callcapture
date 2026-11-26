@@ -168,7 +168,7 @@ final class SettingsManager {
         if let raw = rows["emotion_models_ready"] { emotionModelsReady = raw == "true" }
         if let raw = rows["markdown_profile"], let val = MarkdownProfile(rawValue: raw) { markdownProfile = val }
         if let raw = rows["llm_provider"], let val = LLMProvider(rawValue: raw) { llmProvider = val }
-        if let raw = rows["llm_model"], !raw.isEmpty { llmModel = raw }
+        if let raw = rows["llm_model"], !raw.isEmpty { llmModel = LLMModelCatalog.current(raw) }
         if let raw = rows["local_llm_base_url"], !raw.isEmpty { localLLMBaseURL = raw }
         if let raw = rows["stt_rate_assemblyai"], let v = Double(raw) { sttRateAssemblyAI = v }
         if let raw = rows["stt_rate_deepgram"], let v = Double(raw) { sttRateDeepgram = v }

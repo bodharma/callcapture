@@ -30,11 +30,11 @@ enum LLMModelCatalog {
     /// Top 5 models when the prompt depends on tone / nuance / emotional
     /// reasoning. Best first.
     static let toneAware: [LLMModelOption] = [
-        .init(slug: "anthropic/claude-sonnet-4",
-              displayName: "Claude Sonnet 4",
+        .init(slug: "anthropic/claude-sonnet-5.5",
+              displayName: "Claude Sonnet 5.5",
               blurb: "Best instruction-following + nuanced tone (recommended)"),
-        .init(slug: "anthropic/claude-opus-4",
-              displayName: "Claude Opus 4",
+        .init(slug: "anthropic/claude-opus-5.5",
+              displayName: "Claude Opus 5.5",
               blurb: "Deepest reasoning + most expressive emotional read"),
         .init(slug: "openai/gpt-4o",
               displayName: "GPT-4o",
@@ -42,9 +42,9 @@ enum LLMModelCatalog {
         .init(slug: "google/gemini-2.5-pro",
               displayName: "Gemini 2.5 Pro",
               blurb: "Strongest multilingual tone (great for non-English calls)"),
-        .init(slug: "anthropic/claude-3.5-sonnet",
-              displayName: "Claude 3.5 Sonnet",
-              blurb: "Previous Anthropic gen — still strong, cheaper than 4"),
+        .init(slug: "anthropic/claude-sonnet-4.6",
+              displayName: "Claude Sonnet 4.6",
+              blurb: "Previous Anthropic generation — still strong"),
     ]
 
     /// Cheaper / faster picks where tone-perfect output isn't required.
@@ -52,8 +52,8 @@ enum LLMModelCatalog {
         .init(slug: "google/gemini-2.5-flash",
               displayName: "Gemini 2.5 Flash",
               blurb: "Default. Fast, cheap, ~20× cheaper than Sonnet"),
-        .init(slug: "anthropic/claude-3.5-haiku",
-              displayName: "Claude 3.5 Haiku",
+        .init(slug: "anthropic/claude-haiku-5.5",
+              displayName: "Claude Haiku 5.5",
               blurb: "Anthropic's fast/cheap option"),
         .init(slug: "openai/gpt-4o-mini",
               displayName: "GPT-4o-mini",
@@ -77,6 +77,18 @@ enum LLMModelCatalog {
 
     /// Curated alias used by older callers / tests.
     static var curated: [LLMModelOption] { all }
+
+    /// Slugs OpenRouter stopped serving (requests return HTTP 404), mapped to the
+    /// catalog successor. A persisted retired slug is migrated when settings load.
+    static let retired: [String: String] = [
+        "anthropic/claude-sonnet-4": "anthropic/claude-sonnet-5.5",
+        "anthropic/claude-opus-4": "anthropic/claude-opus-5.5",
+        "anthropic/claude-3.5-sonnet": "anthropic/claude-sonnet-4.6",
+        "anthropic/claude-3.5-haiku": "anthropic/claude-haiku-5.5",
+    ]
+
+    /// `slug`, or its successor when OpenRouter retired it.
+    static func current(_ slug: String) -> String { retired[slug] ?? slug }
 
     /// The catalog option matching `slug`, falling back to the custom sentinel
     /// when the slug isn't curated (so persisted exotic slugs round-trip cleanly).
