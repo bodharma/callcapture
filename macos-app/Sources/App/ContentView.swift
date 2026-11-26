@@ -96,8 +96,8 @@ struct ContentView: View {
                 Toggle("Automatic memos", isOn: $appModel.automaticLiveMemos).toggleStyle(.checkbox)
                 if appModel.automaticLiveMemos {
                     Text(appModel.settingsManager.llmProvider == .openrouter
-                         ? "Committed transcript goes to OpenRouter · \(appModel.settingsManager.llmModel). No speech is uploaded."
-                         : "Committed transcript goes to the configured LLM server · \(appModel.settingsManager.llmModel).")
+                         ? "Committed transcript goes to OpenRouter · \(appModel.settingsManager.model(for: .live)). No speech is uploaded."
+                         : "Committed transcript goes to the configured LLM server · \(appModel.settingsManager.model(for: .live)).")
                         .font(.caption2).foregroundStyle(.secondary)
                 } else { Text("Manual notes and local transcript only.").font(.caption2).foregroundStyle(.secondary) }
             }

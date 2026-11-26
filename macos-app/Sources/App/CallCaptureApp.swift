@@ -265,7 +265,7 @@ final class AppModel {
         }
         var llmEnv = [
             "LLM_BASE_URL": llmBaseURL,
-            "LLM_MODEL": settingsManager.llmModel,
+            "LLM_MODEL": settingsManager.model(for: .final),
             "LLM_API_KEY": llmKey,
         ]
         // Remote transcription providers read a provider-specific key from env.
@@ -429,7 +429,7 @@ final class AppModel {
                     speechLanguage: selectedSpeechLanguage.rawValue,
                     notesLanguage: selectedNotesLanguage.rawValue,
                     configuration: LiveNotesConfiguration(enabled: automaticLiveMemos && configuredURL != nil, baseURL: url,
-                                                          apiKey: automaticLiveMemos ? key : "", model: settingsManager.llmModel))
+                                                          apiKey: automaticLiveMemos ? key : "", model: settingsManager.model(for: .live)))
                 if automaticLiveMemos && configuredURL == nil {
                     liveMeeting.model.markGap("Invalid memo provider URL; local speech and manual notes continue. Fix the provider in Settings before the next meeting.")
                 }

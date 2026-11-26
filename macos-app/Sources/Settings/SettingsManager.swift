@@ -38,14 +38,46 @@ final class SettingsManager {
         didSet { persistCredential(llmApiKey, for: "llm_api_key") }
     }
 
-    var llmProvider: LLMProvider = .openrouter { didSet { persist("llm_provider", llmProvider.rawValue) } }
+    var llmProvider: LLMProvider = .openrouter {
+        didSet {
+            storeCopiedModelSelections()
+            persist("llm_provider", llmProvider.rawValue)
+        }
+    }
 
     var openRouterApiKey: String = "" {
         didSet { persistCredential(openRouterApiKey, for: "openrouter_api_key") }
     }
 
+    /// Final-notes model (insights + sentiment after a recording) for OpenRouter.
     var llmModel: String = "google/gemini-2.5-flash" {
-        didSet { persist("llm_model", llmModel) }
+        didSet {
+            storeCopiedModelSelections()
+            persist("llm_model", llmModel)
+        }
+    }
+
+    /// Automatic live-notes model for OpenRouter. Copied once from `llmModel` on upgrade,
+    /// then independent, so changing the final model never reprices live notes.
+    var liveLLMModel: String = "google/gemini-2.5-flash" {
+        didSet {
+            persist("live_llm_model", liveLLMModel)
+            if !isLoading { liveModelStored = true }
+        }
+    }
+
+    /// Model name for the Local LLM provider, kept apart so switching providers never
+    /// overwrites the OpenRouter selections.
+    var localLLMModel: String = "" {
+        didSet {
+            persist("local_llm_model", localLLMModel)
+            if !isLoading { localModelStored = true }
+        }
+    }
+
+    func model(for role: LLMRole) -> String {
+        if llmProvider == .local { return localLLMModel }
+        return role == .live ? liveLLMModel : llmModel
     }
 
     var localLLMBaseURL: String = "http://localhost:11434/v1" {
@@ -90,6 +122,8 @@ final class SettingsManager {
     private let database: AppDatabase
     private let credentialStore: any CredentialStore
     @ObservationIgnored private var isLoading = true
+    @ObservationIgnored private var liveModelStored = false
+    @ObservationIgnored private var localModelStored = false
     private static let logger = Logger(
         subsystem: "com.callcapture.app",
         category: "SettingsManager"
@@ -101,7 +135,13 @@ final class SettingsManager {
     init(database: AppDatabase, credentialStore: any CredentialStore = KeychainCredentialStore()) {
         self.database = database
         self.credentialStore = credentialStore
-        loadAll()
+        let rows = loadAll()
+        // Settings written before the per-role models existed: copy in memory now (bootstrap
+        // never writes), and store the copies before the first edit that could change them.
+        liveModelStored = rows["live_llm_model"] != nil
+        localModelStored = rows["local_llm_model"] != nil
+        if !liveModelStored { liveLLMModel = llmModel }
+        if !localModelStored, llmProvider == .local { localLLMModel = llmModel }
         isLoading = false
     }
 
@@ -115,6 +155,13 @@ final class SettingsManager {
         return appSupport
             .appendingPathComponent("CallCapture", isDirectory: true)
             .path
+    }
+
+    /// Persists in-memory upgrade copies before an edit that would otherwise change them.
+    private func storeCopiedModelSelections() {
+        guard !isLoading else { return }
+        if !liveModelStored { liveModelStored = true; persist("live_llm_model", liveLLMModel) }
+        if !localModelStored, !localLLMModel.isEmpty { localModelStored = true; persist("local_llm_model", localLLMModel) }
     }
 
     private func persistCredential(_ value: String, for key: String) {
@@ -137,7 +184,8 @@ final class SettingsManager {
         }
     }
 
-    private func loadAll() {
+    @discardableResult
+    private func loadAll() -> [String: String] {
         let rows: [String: String]
         do {
             rows = try database.dbPool.read { db in
@@ -152,7 +200,7 @@ final class SettingsManager {
             }
         } catch {
             Self.logger.error("Failed to load settings: \(error)")
-            return
+            return [:]
         }
 
         if let raw = rows["default_engine"], let val = TranscriptionEngine(rawValue: raw) { defaultEngine = val }
@@ -169,6 +217,8 @@ final class SettingsManager {
         if let raw = rows["markdown_profile"], let val = MarkdownProfile(rawValue: raw) { markdownProfile = val }
         if let raw = rows["llm_provider"], let val = LLMProvider(rawValue: raw) { llmProvider = val }
         if let raw = rows["llm_model"], !raw.isEmpty { llmModel = LLMModelCatalog.current(raw) }
+        if let raw = rows["live_llm_model"], !raw.isEmpty { liveLLMModel = LLMModelCatalog.current(raw) }
+        if let raw = rows["local_llm_model"] { localLLMModel = raw }
         if let raw = rows["local_llm_base_url"], !raw.isEmpty { localLLMBaseURL = raw }
         if let raw = rows["stt_rate_assemblyai"], let v = Double(raw) { sttRateAssemblyAI = v }
         if let raw = rows["stt_rate_deepgram"], let v = Double(raw) { sttRateDeepgram = v }
@@ -184,5 +234,6 @@ final class SettingsManager {
         openRouterApiKey = credentialStore.load(for: "openrouter_api_key")
 
         Self.logger.info("Settings loaded (\(rows.count) persisted keys)")
+        return rows
     }
 }
