@@ -384,6 +384,10 @@ final class AppModel {
                 id: session.id,
                 analysisPath: result.analysisPath
             )
+            sessionManager.updateSessionWarning(
+                id: session.id,
+                message: result.warnings.isEmpty ? nil : result.warnings.joined(separator: "\n")
+            )
             sessionManager.updateSessionCost(
                 id: session.id,
                 costTranscription: result.costTranscription,

@@ -13,6 +13,9 @@ from app.schemas.models import TranscriptSegment
 
 _DEFAULT_MODEL = "google/gemini-2.5-flash"
 
+# Set by the app (LLM_OFFLINE=1) when the Mac has no network and notes use a cloud endpoint.
+AI_OFFLINE_MESSAGE = "AI notes and sentiment skipped: offline. Re-process when online to generate them."
+
 
 @dataclass(frozen=True)
 class LlmEnv:
@@ -22,6 +25,7 @@ class LlmEnv:
     model: str
     api_key: str
     is_local: bool
+    offline: bool = False
 
 
 def resolve_llm_env() -> LlmEnv:
@@ -34,7 +38,14 @@ def resolve_llm_env() -> LlmEnv:
     model = os.environ.get("LLM_MODEL", _DEFAULT_MODEL)
     api_key = os.environ.get("LLM_API_KEY", "")
     is_local = "openrouter.ai" not in base_url
-    return LlmEnv(base_url=base_url, model=model, api_key=api_key, is_local=is_local)
+    offline = os.environ.get("LLM_OFFLINE") == "1"
+    return LlmEnv(base_url=base_url, model=model, api_key=api_key, is_local=is_local, offline=offline)
+
+
+def note(warnings: list[str] | None, message: str) -> None:
+    """Record a user-facing job warning (shown on the session) once."""
+    if warnings is not None and message not in warnings:
+        warnings.append(message)
 
 
 def warn(message: str) -> None:

@@ -31,4 +31,13 @@ struct DatabaseMigrationTests {
         #expect(columns.contains("cost_currency"))
         try? FileManager.default.removeItem(atPath: path)
     }
+
+    @Test("v6 adds the session warning_message column")
+    func v6AddsWarningColumn() throws {
+        let path = NSTemporaryDirectory() + "cc-test-\(UUID().uuidString).db"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let db = try AppDatabase(path: path)
+        let columns = try db.dbPool.read { try $0.columns(in: "session").map(\.name) }
+        #expect(columns.contains("warning_message"))
+    }
 }

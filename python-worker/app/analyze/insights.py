@@ -14,6 +14,8 @@ from app.postprocess.llm_env import (
     language_directive,
     resolve_llm_env,
     transcript_text,
+    AI_OFFLINE_MESSAGE,
+    note,
     warn,
 )
 from app.schemas.models import Insights, Sentiment, TranscriptSegment
@@ -135,6 +137,7 @@ def analyze_insights(
     sentiment: Sentiment | None = None,
     emotion: dict | None = None,
     notes_language: str = "auto",
+    warnings: list[str] | None = None,
 ) -> Insights | None:
     """Produce type-tailored Insights from speaker-labeled segments via the LLM.
 
@@ -145,8 +148,12 @@ def analyze_insights(
         return None
 
     env = resolve_llm_env()
+    if env.offline and not env.is_local:
+        note(warnings, AI_OFFLINE_MESSAGE)
+        return _fallback_insights(segments)
     if not env.api_key and not env.is_local:
         warn("no LLM_API_KEY for cloud endpoint, using fallback insights")
+        note(warnings, "AI notes need an LLM API key; rule-based notes were used.")
         return _fallback_insights(segments)
 
     system = language_directive(notes_language) + _PROMPTS.get(recording_type, _CALL_PROMPT)
@@ -159,4 +166,5 @@ def analyze_insights(
         return _build_insights(data, recording_type, segments)
     except (LLMError, ValueError, TypeError, AttributeError, KeyError) as exc:
         warn(f"insights failed: {exc}, using fallback insights")
+        note(warnings, f"AI notes failed ({exc}); rule-based notes were used.")
         return _fallback_insights(segments)

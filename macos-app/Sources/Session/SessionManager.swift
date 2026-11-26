@@ -21,6 +21,8 @@ struct Session: Codable, Identifiable, Sendable {
     var costTranscription: Double? = nil
     var costProcessing: Double? = nil
     var costCurrency: String? = nil
+    /// Non-fatal problems from the last processing run (e.g. AI notes skipped offline).
+    var warningMessage: String? = nil
     var status: String
 
     /// URL for the session's audio file.
@@ -286,6 +288,25 @@ final class SessionManager {
             }
         } catch {
             Self.logger.error("Failed to update session cost for \(id): \(error)")
+        }
+    }
+
+    /// Stores (or clears, with nil) the warnings from the session's last processing run.
+    func updateSessionWarning(id: String, message: String?) {
+        do {
+            try database.dbPool.write { db in
+                guard var record = try SessionRecord.fetchOne(db, key: id) else {
+                    Self.logger.warning("Session not found for warning update: \(id)")
+                    return
+                }
+                record.warningMessage = message
+                try record.update(db)
+            }
+            if let index = recentSessions.firstIndex(where: { $0.id == id }) {
+                recentSessions[index].warningMessage = message
+            }
+        } catch {
+            Self.logger.error("Failed to update session warning for \(id): \(error)")
         }
     }
 

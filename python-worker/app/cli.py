@@ -239,6 +239,7 @@ def _run_pipeline(request: JobRequest) -> JobResult:
         segments,
         emotion=emotion_summary or None,
         notes_language=request.notes_language,
+        warnings=warnings,
     )
     if sentiment is not None and arc:
         sentiment = sentiment.model_copy(update={"arc": arc})
@@ -249,6 +250,7 @@ def _run_pipeline(request: JobRequest) -> JobResult:
         sentiment=sentiment,
         emotion=emotion_summary or None,
         notes_language=request.notes_language,
+        warnings=warnings,
     )
     speakers = _build_speakers(segments, emotion)
     analysis_path = _write_analysis(

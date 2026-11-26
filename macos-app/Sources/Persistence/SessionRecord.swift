@@ -29,6 +29,7 @@ struct SessionRecord: Codable, FetchableRecord, PersistableRecord, Identifiable 
     var costTranscription: Double?
     var costProcessing: Double?
     var costCurrency: String?
+    var warningMessage: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -51,6 +52,7 @@ struct SessionRecord: Codable, FetchableRecord, PersistableRecord, Identifiable 
         case costTranscription = "cost_transcription"
         case costProcessing = "cost_processing"
         case costCurrency = "cost_currency"
+        case warningMessage = "warning_message"
     }
 
     /// Returns sessions ordered newest-first by `started_at`.
@@ -93,6 +95,7 @@ extension SessionRecord {
             costTranscription: costTranscription,
             costProcessing: costProcessing,
             costCurrency: costCurrency,
+            warningMessage: warningMessage,
             status: status
         )
     }
@@ -120,5 +123,6 @@ extension SessionRecord {
         self.costTranscription = session.costTranscription
         self.costProcessing = session.costProcessing
         self.costCurrency = session.costCurrency
+        self.warningMessage = session.warningMessage
     }
 }

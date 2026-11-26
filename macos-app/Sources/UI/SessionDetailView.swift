@@ -66,6 +66,7 @@ struct SessionDetailView: View {
                     Button("Open live conversation map") { openLiveMap() }
                         .buttonStyle(.bordered)
                 }
+                warningSection
                 errorSection
                 actionButtons
             }
@@ -305,6 +306,19 @@ struct SessionDetailView: View {
         if let analysis, analysis.hasContent {
             GroupBox("Conversation Insights") {
                 ConversationInsightsView(analysis: analysis, names: speakerNames)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var warningSection: some View {
+        if let warning = current.warningMessage, !warning.isEmpty {
+            GroupBox("Warnings") {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
             }
         }
     }

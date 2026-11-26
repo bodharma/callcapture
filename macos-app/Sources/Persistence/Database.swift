@@ -134,6 +134,12 @@ final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v6_sessionWarning") { db in
+            try db.alter(table: "session") { t in
+                t.add(column: "warning_message", .text)
+            }
+        }
+
         return migrator
     }
 }

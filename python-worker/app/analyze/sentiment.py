@@ -15,6 +15,8 @@ from app.postprocess.llm_env import (
     language_directive,
     resolve_llm_env,
     transcript_text,
+    AI_OFFLINE_MESSAGE,
+    note,
     warn,
 )
 from app.schemas.models import Sentiment, SpeakerSentiment, TranscriptSegment
@@ -105,6 +107,7 @@ def analyze_sentiment(
     *,
     emotion: dict | None = None,  # acoustic-tone context; see _tone_block
     notes_language: str = "auto",  # output language directive; "auto" = source
+    warnings: list[str] | None = None,
 ) -> Sentiment | None:
     """Judge conversation sentiment from speaker-labeled segments via the LLM.
 
@@ -116,8 +119,12 @@ def analyze_sentiment(
         return None
 
     env = resolve_llm_env()
+    if env.offline and not env.is_local:
+        note(warnings, AI_OFFLINE_MESSAGE)
+        return _neutral_fallback(segments)
     if not env.api_key and not env.is_local:
         warn("no LLM_API_KEY for cloud endpoint, using neutral sentiment")
+        note(warnings, "AI sentiment needs an LLM API key; neutral sentiment was used.")
         return _neutral_fallback(segments)
 
     try:
@@ -129,4 +136,5 @@ def analyze_sentiment(
         return _build_sentiment(data, segments)
     except (LLMError, ValueError, TypeError, AttributeError, KeyError) as exc:
         warn(f"sentiment failed: {exc}, using neutral sentiment")
+        note(warnings, f"AI sentiment failed ({exc}); neutral sentiment was used.")
         return _neutral_fallback(segments)
