@@ -219,7 +219,8 @@ def _run_pipeline(request: JobRequest) -> JobResult:
 
     report_progress(request.job_id, 0.5, "postprocessing")
 
-    rendered = render_note(request.recording_type, insights, sentiment, speakers, segments)
+    rendered = render_note(request.recording_type, insights, sentiment, speakers, segments,
+                           profile=request.markdown_profile)
 
     report_progress(request.job_id, 0.8, "exporting")
 

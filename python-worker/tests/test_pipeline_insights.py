@@ -32,8 +32,7 @@ def test_pipeline_writes_insights_and_calls_note(tmp_path, monkeypatch):
     assert analysis["insights"]["dynamics"] == "Balanced."
 
     notes = (tmp_path / "sess_notes.md").read_text()
-    assert notes.startswith("---\n")
-    assert "recording_type: call_meeting" in notes
+    assert notes.startswith("# ")
     assert "# Sync" in notes
     assert "## Conversation Insights" in notes
     assert "- [ ] ship it" in notes
@@ -55,7 +54,7 @@ def test_pipeline_memo_note_shape(tmp_path, monkeypatch):
 
     assert result.status == "completed"
     notes = (tmp_path / "memo_notes.md").read_text()
-    assert "recording_type: voice_memo" in notes
+    assert "# Idea" in notes
     assert "## Reflections" in notes
     assert "- revisit later" in notes
     assert "## Conversation Insights" not in notes  # memo shape
@@ -91,4 +90,4 @@ def test_pipeline_completes_when_insights_none(tmp_path, monkeypatch):
     analysis = json.loads((tmp_path / "sess_analysis.json").read_text())
     assert analysis["insights"] is None
     notes = (tmp_path / "sess_notes.md").read_text()
-    assert notes.startswith("---\n")  # note still renders (minimal)
+    assert notes.startswith("# ")  # note still renders (minimal)

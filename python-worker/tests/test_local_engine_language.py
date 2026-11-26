@@ -63,3 +63,10 @@ def test_explicit_language_is_passed_through(monkeypatch, tmp_path):
     )
 
     assert factory.call_args.kwargs.get("language") == "uk"
+
+
+def test_missing_dependency_fails_instead_of_returning_canned_speech(monkeypatch):
+    import pytest
+    monkeypatch.setitem(sys.modules, "pywhispercpp.model", None)
+    with pytest.raises(RuntimeError, match="pywhispercpp"):
+        transcribe_local("/tmp/unused.wav")

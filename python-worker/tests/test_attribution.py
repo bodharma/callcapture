@@ -36,3 +36,17 @@ def test_merged_output_sorted_by_start():
     out = attribute_segments(mic_segments=mic, system_segments=syss, turns=None, self_label="You")
     assert [s.start for s in out] == [0.0, 0.5]
     assert out[0].speaker == "You" and out[1].speaker == "Speaker 1"
+
+
+def test_native_provider_speakers_survive_absent_or_empty_sidecar():
+    remote = [TranscriptSegment(start=0, end=1, text="one", speaker="Speaker A"),
+              TranscriptSegment(start=1, end=2, text="two", speaker="Speaker B")]
+    for turns in (None, []):
+        result = attribute_segments([], remote, turns)
+        assert [s.speaker for s in result] == ["Speaker A", "Speaker B"]
+
+
+def test_local_sidecar_overrides_native_speaker_when_present():
+    remote = [TranscriptSegment(start=0, end=1, text="one", speaker="Provider A")]
+    turns = [DiarizationTurn(start=0, end=1, speaker="Named remote")]
+    assert attribute_segments([], remote, turns)[0].speaker == "Named remote"

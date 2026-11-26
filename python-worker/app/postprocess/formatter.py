@@ -220,10 +220,10 @@ def _sentiment_section(sentiment: Sentiment | None) -> list[str]:
     return lines
 
 
-def _transcript_section(segments: list[TranscriptSegment]) -> list[str]:
+def _transcript_section(segments: list[TranscriptSegment], heading: str = "## Transcript") -> list[str]:
     if not segments:
         return []
-    lines = ["## Transcript", ""]
+    lines = [heading, ""]
     for seg in segments:
         speaker = f"**{seg.speaker}:** " if seg.speaker else ""
         lines.append(f"`[{seg.start:.1f}s - {seg.end:.1f}s]` {speaker}{seg.text}")
@@ -298,15 +298,22 @@ def render_note(
     sentiment: Sentiment | None,
     speakers: list[SpeakerStats],
     segments: list[TranscriptSegment],
+    profile: str = "obsidian",
 ) -> str:
-    """Render the per-type Markdown note (frontmatter + body).
+    """Render a type-specific note with the selected export profile.
 
     Unknown `recording_type` falls back to the call/meeting shape. A None `insights`
     is treated as an empty `Insights` so the note still renders (minimal).
     """
+    if profile not in _RENDERERS:
+        raise ValueError(f"Unknown profile: {profile!r}")
     ins = insights if insights is not None else Insights()
     renderer = _NOTE_RENDERERS.get(recording_type, _render_call_body)
-    body = renderer(ins, sentiment, speakers, segments)
+    body = renderer(ins, sentiment, speakers, segments if profile == "obsidian" else [])
+    if profile == "full_transcript":
+        body += _transcript_section(segments, heading="## Full Transcript")
+    if profile != "obsidian":
+        return "\n".join(body)
     frontmatter = "\n".join(
         _frontmatter(recording_type, ins, sentiment, speakers, segments)
     )

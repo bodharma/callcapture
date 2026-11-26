@@ -29,13 +29,13 @@ def attribute_segments(
     self_label: str = "You",
 ) -> list[TranscriptSegment]:
     """Label mic segments as `self_label` and system segments by diarization
-    overlap (or a single remote speaker when no turns), merged and sorted by start.
+    overlap (preserving provider labels when no turns), merged and sorted by start.
     """
     labeled: list[TranscriptSegment] = []
     for s in mic_segments:
         labeled.append(s.model_copy(update={"speaker": self_label}))
     for s in system_segments:
-        label = _label_for(s, turns) if turns else _DEFAULT_REMOTE_SPEAKER
+        label = _label_for(s, turns) if turns else (s.speaker or _DEFAULT_REMOTE_SPEAKER)
         labeled.append(s.model_copy(update={"speaker": label}))
     labeled.sort(key=lambda seg: seg.start)
     return labeled

@@ -2,23 +2,8 @@
 
 from __future__ import annotations
 
-import sys
-
 from app.schemas.models import TranscriptSegment
 from app.utils.progress import report_progress
-
-
-def _stub_segments() -> list[TranscriptSegment]:
-    """Return fake segments for spike testing when whisper is unavailable."""
-    sys.stderr.write(
-        '{"warning": "pywhispercpp unavailable, returning stub segments"}\n'
-    )
-    sys.stderr.flush()
-    return [
-        TranscriptSegment(start=0.0, end=5.0, text="Hello, this is a test.", speaker=None),
-        TranscriptSegment(start=5.0, end=10.0, text="Stub transcription segment.", speaker=None),
-        TranscriptSegment(start=10.0, end=15.0, text="End of stub transcript.", speaker=None),
-    ]
 
 
 def transcribe_local(
@@ -29,7 +14,7 @@ def transcribe_local(
 ) -> list[TranscriptSegment]:
     """Transcribe audio using local whisper model.
 
-    Falls back to stub segments if pywhispercpp is not installed.
+    Raises RuntimeError if the local speech dependency is unavailable.
 
     Args:
         audio_path: Path to the audio file.
@@ -42,8 +27,8 @@ def transcribe_local(
     """
     try:
         from pywhispercpp.model import Model  # type: ignore[import-untyped]
-    except ImportError:
-        return _stub_segments()
+    except ImportError as exc:
+        raise RuntimeError("Local transcription requires pywhispercpp; no transcript was produced") from exc
 
     report_progress(job_id, 0.1, "loading_model")
 
