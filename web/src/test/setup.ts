@@ -25,6 +25,7 @@ Object.defineProperty(HTMLMediaElement.prototype, "load", {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });

@@ -157,6 +157,19 @@ describe("SessionDetail", () => {
     await waitFor(() => expect(screen.queryByRole("textbox", { name: "Name for Speaker 2" })).toBeNull());
   });
 
+  it("refreshes the page when the session's recording ends", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let status = "recording";
+    api(sessionFixture({ status }), { "/api/sessions/S1": () => sessionFixture({ status }) });
+    renderAt("/sessions/S1");
+    const waiting = "Still recording. The tape shows up here after you stop.";
+    expect(await screen.findByText(waiting)).toBeTruthy();
+    status = "completed";
+    await vi.advanceTimersByTimeAsync(2_100);
+    await waitFor(() => expect(screen.queryByText(waiting)).toBeNull());
+    expect(await screen.findByRole("button", { name: "Transcribe" })).toBeTruthy();
+  });
+
   it("links the topic map tab to the live map view", async () => {
     api(sessionFixture({ hasLiveMap: true }));
     renderAt("/sessions/S1?tab=topics");

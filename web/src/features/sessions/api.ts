@@ -45,8 +45,29 @@ export function useSystem() {
   });
 }
 
+/** Statuses that change on their own (capture or processing running), so they are polled. */
+const isChanging = (status: string | undefined): boolean => status === "recording" || status === "transcribing";
+
+/** Every session, newest first; polled every 2 s while any of them records or is processed. */
 export function useSessions() {
-  return useQuery({ queryKey: keys.sessions, queryFn: () => apiGet<SessionDTO[]>("/api/sessions") });
+  return useQuery({
+    queryKey: keys.sessions,
+    queryFn: () => apiGet<SessionDTO[]>("/api/sessions"),
+    refetchInterval: (query) => (query.state.data?.some((s) => isChanging(s.status)) ? POLL_MS : false),
+  });
+}
+
+/** A recording starting or stopping adds or updates a row: refetch the list when the flag flips. */
+export function useRefreshOnRecordingChange() {
+  const client = useQueryClient();
+  const recording = useSystem().data?.recording;
+  const previous = useRef<boolean | undefined>(undefined);
+  useEffect(() => {
+    if (recording === undefined) return;
+    const was = previous.current;
+    previous.current = recording;
+    if (was !== undefined && was !== recording) void client.invalidateQueries({ queryKey: keys.sessions });
+  }, [client, recording]);
 }
 
 export function useSearch(query: string) {
@@ -58,12 +79,12 @@ export function useSearch(query: string) {
   });
 }
 
-/** The session record; polled every 2 s while it is being processed. */
+/** The session record; polled every 2 s while it records or is being processed. */
 export function useSession(id: string) {
   return useQuery({
     queryKey: keys.session(id),
     queryFn: () => apiGet<SessionDTO>(sessionPath(id)),
-    refetchInterval: (query) => (query.state.data?.status === "transcribing" ? POLL_MS : false),
+    refetchInterval: (query) => (isChanging(query.state.data?.status) ? POLL_MS : false),
   });
 }
 
@@ -73,11 +94,11 @@ export function useSessionPart<P extends SessionPart>(id: string, part: P, enabl
     queryFn: () => apiGet<PartTypes[P]>(`${sessionPath(id)}/${part}`),
     enabled,
     // The audio of a finished session never changes, so neither do its peaks.
-    staleTime: part === "peaks" ? Number.POSITIVE_INFINITY : undefined,
+    ...(part === "peaks" ? { staleTime: Number.POSITIVE_INFINITY } : {}),
   });
 }
 
-/** When a processing run ends, refetch everything it may have changed. */
+/** When a recording or a processing run ends, refetch everything it may have changed. */
 export function useRefreshAfterProcessing(session: SessionDTO | undefined) {
   const client = useQueryClient();
   const previous = useRef<string | undefined>(undefined);
@@ -85,7 +106,7 @@ export function useRefreshAfterProcessing(session: SessionDTO | undefined) {
     if (!session) return;
     const was = previous.current;
     previous.current = session.status;
-    if (was === "transcribing" && session.status !== "transcribing") {
+    if (isChanging(was) && session.status !== was) {
       void client.invalidateQueries({ queryKey: keys.session(session.id) });
       void client.invalidateQueries({ queryKey: keys.sessions });
       void client.invalidateQueries({ queryKey: ["search"] });

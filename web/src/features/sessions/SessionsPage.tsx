@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Outlet } from "react-router";
-import { useSessions, useSystem } from "./api";
+import { useRefreshOnRecordingChange, useSessions, useSystem } from "./api";
 import { SessionList } from "./SessionList";
 import "./sessions.css";
 
@@ -40,6 +40,7 @@ function SystemState() {
 export function SessionsPage() {
   const [query, setQuery] = useState("");
   const debounced = useDebounced(query, SEARCH_DELAY_MS);
+  useRefreshOnRecordingChange();
 
   return (
     <div className="archive">

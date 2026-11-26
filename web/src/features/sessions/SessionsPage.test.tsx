@@ -68,6 +68,22 @@ describe("SessionsPage", () => {
     );
   });
 
+  it("picks up a new session when a recording starts", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let recording = false;
+    mockApi({
+      "/api/system": () => ({ online: true, recording, version: "1.0" }),
+      "/api/sessions": () => (recording ? [sessionFixture({ status: "recording", title: "Standup" })] : []),
+    });
+    renderAt("/sessions");
+    expect(await screen.findByText("Nothing recorded yet. Record a call from the menu bar.")).toBeTruthy();
+    recording = true;
+    await vi.advanceTimersByTimeAsync(2_100);
+    const list = screen.getByRole("navigation", { name: "Sessions" });
+    expect(await within(list).findByRole("link", { name: /Standup/ })).toBeTruthy();
+    expect(await screen.findByText("Recording")).toBeTruthy();
+  });
+
   it("redirects / to /sessions and shows Not found for unknown routes", async () => {
     mockApi({ "/api/system": system, "/api/sessions": [] });
     const { router } = renderAt("/");
