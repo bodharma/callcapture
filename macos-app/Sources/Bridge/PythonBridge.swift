@@ -177,6 +177,7 @@ final class PythonBridge: @unchecked Sendable {
         configuration.apply(to: process)
 
         let stdinPipe = Pipe()
+        PipeSafety.suppressSIGPIPE(on: stdinPipe) // a worker that dies early must not kill the app on write
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
 

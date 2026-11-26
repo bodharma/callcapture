@@ -51,9 +51,14 @@ final class LiveWorkerProcess: @unchecked Sendable {
     private var pending: Set<String> = []
     private var failure: String?
     private var cancelled = false
+    private var writeFailed = false
     private var continuation: AsyncThrowingStream<LiveWorkerEvent, Error>.Continuation?
 
-    init(configuration: WorkerProcessConfiguration) { self.configuration = configuration }
+    init(configuration: WorkerProcessConfiguration) {
+        self.configuration = configuration
+        // A worker that dies mid-meeting must fail our writes with EPIPE, not kill the app with SIGPIPE.
+        PipeSafety.suppressSIGPIPE(on: input)
+    }
     var isRunning: Bool { process.isRunning }
 
     func start() throws -> AsyncThrowingStream<LiveWorkerEvent, Error> {
@@ -91,7 +96,8 @@ final class LiveWorkerProcess: @unchecked Sendable {
     }
 
     func finish(timeout: Double) async throws {
-        if process.isRunning { try await write(Data(#"{"type":"stop"}"#.utf8)) }
+        // If the stop request cannot be delivered the worker is already gone; the wait below reports it.
+        if process.isRunning { try? await write(Data(#"{"type":"stop"}"#.utf8)) }
         do {
             try await waitUntil(timeout: timeout) { !self.process.isRunning }
             if let message = lock.withLock({ failure }) { throw LiveWorkerError.unavailable(message) }
@@ -113,17 +119,35 @@ final class LiveWorkerProcess: @unchecked Sendable {
         kill(pid, SIGKILL)
     }
 
-    private func write(_ data: Data) async throws {
+    func write(_ data: Data) async throws {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 writer.async { [self] in
                     do {
+                        // Once a write has failed the worker is unreachable: stop writing (no repeated errors).
+                        if lock.withLock({ writeFailed }) { throw LiveWorkerError.unavailable(Self.stdinClosedMessage) }
                         try input.fileHandleForWriting.write(contentsOf: data + Data([10]))
                         continuation.resume()
-                    } catch { continuation.resume(throwing: error) }
+                    } catch {
+                        noteWriteFailure()
+                        continuation.resume(throwing: LiveWorkerError.unavailable(Self.stdinClosedMessage))
+                    }
                 }
             }
         } onCancel: { self.cancel() }
+    }
+
+    private static let stdinClosedMessage = "Local speech worker stopped accepting audio."
+
+    /// Records the first failed write (typically EPIPE: the worker died) as the worker's failure.
+    /// `waitUntil` then surfaces it through the usual error path; later writes are refused.
+    private func noteWriteFailure() {
+        lock.withLock {
+            guard !writeFailed else { return }
+            writeFailed = true
+            if failure == nil { failure = Self.stdinClosedMessage }
+            pending.removeAll()
+        }
     }
 
     private func waitUntil(timeout: Double, condition: () -> Bool) async throws {

@@ -85,6 +85,33 @@ struct LiveWorkerTests {
         #expect(!worker.isRunning)
     }
 
+    @Test("writing to a worker that already exited fails cleanly instead of raising SIGPIPE")
+    func writeToDeadWorker() async throws {
+        // The worker exits at once without reading stdin. A background `sleep` that closed its stdin keeps
+        // the stdout pipe open for a moment, so the app's stdin handle is still open (not yet closed by the
+        // reader thread at EOF) when the writes happen: the kernel reports "no reader" (EPIPE/SIGPIPE).
+        let worker = LiveWorkerProcess(configuration: WorkerProcessConfiguration(
+            executableURL: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "sleep 3 <&- 2>&- & exit 0"], directory: nil, environment: [:]))
+        defer { worker.cancel() }
+        _ = try worker.start()
+        let deadline = Date().addingTimeInterval(TestTiming.subprocessWait)
+        while worker.isRunning && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(!worker.isRunning)
+        let payload = Data(repeating: 65, count: 400_000) // larger than the 64 KB pipe buffer
+        for _ in 0..<3 {
+            await #expect(throws: (any Error).self) { try await worker.write(payload) }
+        }
+        // The failed write is surfaced through the worker's normal error path.
+        await #expect(throws: LiveWorkerError.self) { try await worker.finish(timeout: 1) }
+    }
+
+    @Test("a pipe's write end is marked to fail with EPIPE instead of raising SIGPIPE")
+    func pipeSuppressesSIGPIPE() {
+        let pipe = Pipe()
+        PipeSafety.suppressSIGPIPE(on: pipe)
+        #expect(fcntl(pipe.fileHandleForWriting.fileDescriptor, F_GETNOSIGPIPE) != 0)
+    }
+
     /// The two tests that snapshot the whole process's pipes. Serialized only against each other so one
     /// cannot see the other's in-flight pipes; every other suite still runs in parallel.
     @Suite("Worker pipe release", .serialized)
