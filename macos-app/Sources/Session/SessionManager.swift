@@ -23,6 +23,8 @@ struct Session: Codable, Identifiable, Sendable {
     var costCurrency: String? = nil
     /// Non-fatal problems from the last processing run (e.g. AI notes skipped offline).
     var warningMessage: String? = nil
+    /// Why the last processing run failed (set with status "error"; cleared by the next status change).
+    var errorMessage: String? = nil
     var status: String
 
     /// URL for the session's audio file.

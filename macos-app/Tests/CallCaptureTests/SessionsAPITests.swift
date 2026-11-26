@@ -501,7 +501,76 @@ struct SessionsAPITests {
         }
     }
 
-    @Test("reprocess, vault, reveal and delete reach the backend and answer JSON")
+    @Test("re-process starts in the background: 202 at once, then the detail follows the run",
+          .timeLimit(.minutes(1)))
+    func reprocessRunsInBackground() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.backend.finishReprocess(status: "error", error: "Worker crashed")
+        try await fixture.run { client in
+            // The fake's run stays blocked until released: a route that waited for it
+            // would never answer, and the time limit would fail the test.
+            let started = try await fixture.request(
+                client, "/api/sessions/S1/reprocess", method: .post, headers: [.origin: ownOrigin])
+            #expect(started.status == .accepted)
+            #expect(String(buffer: started.body) == #"{"started":true}"#)
+            #expect(fixture.backend.reprocessedIDs == ["S1"])
+
+            let running = try #require(try json(try await fixture.request(client, "/api/sessions/S1")) as? [String: Any])
+            #expect(running["status"] as? String == "transcribing")
+            #expect(running["error"] == nil)
+
+            await fixture.backend.releaseReprocess()
+
+            let done = try #require(try json(try await fixture.request(client, "/api/sessions/S1")) as? [String: Any])
+            #expect(done["status"] as? String == "error")
+            #expect(done["error"] as? String == "Worker crashed")
+            #expect(done["warning"] as? String == "AI notes skipped: offline")
+        }
+    }
+
+    @Test("a re-process that cannot start now is 409 with the reason as the error")
+    func reprocessRefused() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.backend.refuseReprocess(with: "Another session is being processed. Try again when it finishes.")
+        try await fixture.run { client in
+            let response = try await fixture.request(client, "/api/sessions/S1/reprocess", method: .post)
+            #expect(response.status == .conflict)
+            #expect(String(buffer: response.body)
+                == #"{"error":"Another session is being processed. Try again when it finishes."}"#)
+        }
+        #expect(fixture.backend.reprocessedIDs.isEmpty)
+    }
+
+    @Test("a garbled speakers file reads as no names (200), and a rename rewrites it, like the detail view")
+    func corruptSpeakersFile() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        try Data("{garbled".utf8).write(to: URL(fileURLWithPath: SpeakerNames.sidecarPath(audioPath: fixture.audioPath)))
+        fixture.backend.saveVault(into: fixture.dir.appendingPathComponent("vault"))
+        try await fixture.run { client in
+            for leaf in ["transcript", "note", "analysis", "speakers", "export?format=md", "export?format=json"] {
+                let response = try await fixture.request(client, "/api/sessions/S1/\(leaf)")
+                #expect(response.status == .ok, "\(leaf)")
+            }
+            let lines = try #require(
+                try json(try await fixture.request(client, "/api/sessions/S1/transcript")) as? [[String: Any]])
+            #expect(lines[0]["name"] as? String == "Speaker 1")
+            let vault = try await fixture.request(client, "/api/sessions/S1/vault", method: .post)
+            #expect(vault.status == .ok)
+
+            let rename = try await fixture.request(
+                client, "/api/sessions/S1/speakers/Speaker%201", method: .put, json: #"{"name":"Alice"}"#)
+            #expect(rename.status == .noContent)
+            let speakers = try #require(
+                try json(try await fixture.request(client, "/api/sessions/S1/speakers")) as? [[String: Any]])
+            #expect(speakers.first?["name"] as? String == "Alice")
+        }
+        #expect(try SpeakerNames.load(audioPath: fixture.audioPath).display("Speaker 1") == "Alice")
+    }
+
+    @Test("vault, reveal and delete reach the backend and answer JSON")
     func writeActions() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
@@ -509,16 +578,6 @@ struct SessionsAPITests {
         try SpeakerNames().renamed("Speaker 1", to: "Alice").save(audioPath: fixture.audioPath)
         let same: HTTPFields = [.origin: ownOrigin]
         try await fixture.run { client in
-            let ok = try await fixture.request(client, "/api/sessions/S1/reprocess", method: .post, headers: same)
-            #expect(ok.status == .ok)
-            #expect(String(buffer: ok.body) == #"{"error":null}"#)
-            fixture.backend.failReprocess(with: "Offline — this needs an internet connection.")
-            let failed = try await fixture.request(client, "/api/sessions/S1/reprocess", method: .post)
-            #expect(failed.status == .ok)
-            #expect((try json(failed) as? [String: Any])?["error"] as? String
-                == "Offline — this needs an internet connection.")
-            #expect(fixture.backend.reprocessedIDs == ["S1", "S1"])
-
             let noVault = try await fixture.request(client, "/api/sessions/S1/vault", method: .post)
             #expect(noVault.status == .conflict)
             #expect((try json(noVault) as? [String: Any])?["error"] as? String == "nothing_to_save")

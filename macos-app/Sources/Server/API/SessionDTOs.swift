@@ -24,6 +24,8 @@ struct SessionDTO: Encodable {
     let notesLanguage: String
     let engine: String?
     let warning: String?
+    /// Why the last processing run failed, as the session record holds it.
+    let error: String?
     let costs: Costs
     let audioFileName: String
     let hasAudio: Bool
@@ -45,6 +47,7 @@ struct SessionDTO: Encodable {
         notesLanguage = session.notesLanguage
         engine = session.engineUsed
         warning = session.warningMessage.flatMap { $0.isEmpty ? nil : $0 }
+        error = session.errorMessage.flatMap { $0.isEmpty ? nil : $0 }
         costs = Costs(
             transcription: session.costTranscription, processing: session.costProcessing,
             total: CostFormat.total(session.costTranscription, session.costProcessing),
@@ -114,16 +117,9 @@ struct NoteDTO: Encodable {
     private enum CodingKeys: String, CodingKey { case markdown }
 }
 
-/// `{"error": String | null}` (null always present).
-struct ReprocessDTO: Encodable {
-    let error: String?
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(error, forKey: .error)
-    }
-
-    private enum CodingKeys: String, CodingKey { case error }
+/// `202 {"started": true}` from `POST /reprocess`.
+struct StartedDTO: Encodable {
+    let started = true
 }
 
 struct VaultDTO: Encodable {

@@ -124,8 +124,15 @@ private func addMediaRoutes(to router: Router<BasicRequestContext>, backend: any
 
 private func addActionRoutes(to router: Router<BasicRequestContext>, backend: any AppBackend) {
     router.post("api/sessions/:id/reprocess") { _, context in
+        // Starts the run and answers at once; the UI polls GET /api/sessions/:id
+        // (status, error) until Task 8's events replace polling.
         await withSession(context, backend) { session in
-            APIResponse.json(ReprocessDTO(error: await backend.reprocess(id: session.id)))
+            do {
+                try await backend.reprocess(id: session.id)
+            } catch BackendError.busy(let reason) {
+                return APIResponse.error(.conflict, reason)
+            }
+            return APIResponse.json(StartedDTO(), status: .accepted)
         }
     }
     router.post("api/sessions/:id/vault") { _, context in

@@ -290,6 +290,24 @@ final class AppModel {
         MainActor.assumeIsolated { liveMeeting.cancel() }
     }
 
+    /// Processes a session in the background, the way auto-process after Stop does:
+    /// the app is marked busy at once and the menu's Cancel can stop the run.
+    @MainActor func startTranscription(_ session: Session) {
+        state = .transcribing
+        // Mark the record now, so a client polling the session never reads the old
+        // status as "finished" before `transcribeSession` gets to it.
+        sessionManager.updateSessionStatus(id: session.id, status: "transcribing")
+        transcriptionTask = Task { [weak self] in
+            guard let self else { return }
+            await self.transcribeSession(session)
+            // Every path sets a final status except the wait-for-network early
+            // return; undo the mark there and keep the reason on the record.
+            if state != .transcribing, sessionManager.session(id: session.id)?.status == "transcribing" {
+                sessionManager.updateSessionStatus(id: session.id, status: session.status, errorMessage: lastError)
+            }
+        }
+    }
+
     /// Cancels an in-progress transcription. The recorded audio is preserved
     /// and the session can be re-transcribed later from the session list.
     func cancelTranscription() {

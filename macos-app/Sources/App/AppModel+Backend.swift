@@ -13,9 +13,6 @@ import os
 final class AppModelBackend: AppBackend {
     private struct Reference { weak var model: AppModel? }
     private let reference = OSAllocatedUnfairLock(uncheckedState: Reference())
-    /// One re-process at a time from the API: `transcribeSession` awaits before it
-    /// marks the app busy, so the state check alone could let two through.
-    private let reprocessing = OSAllocatedUnfairLock(initialState: false)
 
     static let processableStatuses: Set<String> = ["completed", "transcribed", "error", "failed", "interrupted"]
 
@@ -49,19 +46,15 @@ final class AppModelBackend: AppBackend {
         }
     }
 
-    func reprocess(id: String) async -> String? {
-        guard let model else { return "CallCapture is not ready yet." }
-        guard reprocessing.withLock({ busy in defer { busy = true }; return !busy }) else {
-            return "Another session is being processed."
+    /// Checks and starts in one main-actor step: `startTranscription` marks the app
+    /// busy before returning, so a second request (API or SwiftUI) is refused.
+    func reprocess(id: String) async throws {
+        guard let model else { throw BackendError.notFound }
+        try await MainActor.run {
+            guard let session = model.sessionManager.session(id: id) else { throw BackendError.notFound }
+            if let problem = Self.reprocessProblem(session, model: model) { throw BackendError.busy(problem) }
+            model.startTranscription(session)
         }
-        defer { reprocessing.withLock { $0 = false } }
-        // Unstructured on purpose: a dropped HTTP connection must not cancel processing.
-        return await Task { @MainActor in
-            guard let session = model.sessionManager.session(id: id) else { return "This session no longer exists." }
-            if let problem = Self.reprocessProblem(session, model: model) { return problem }
-            await model.transcribeSession(session)
-            return model.state == .error ? (model.lastError ?? "Processing failed.") : nil
-        }.value
     }
 
     @MainActor
@@ -69,8 +62,13 @@ final class AppModelBackend: AppBackend {
         guard processableStatuses.contains(session.status) else {
             return "This session can't be processed while it is \(session.status)."
         }
-        guard model.state != .transcribing, model.state != .recording, !model.playbackBlocked else {
-            return "Wait until the current recording or processing finishes."
+        // Processing takes over AppModel.state; during a recording that would leave the
+        // menu unable to stop the capture (see the Task 5 report, pre-review fix #5).
+        guard model.state != .recording, !model.playbackBlocked else {
+            return "Stop the recording before processing a session."
+        }
+        guard model.state != .transcribing else {
+            return "Another session is being processed. Try again when it finishes."
         }
         let engine = JobRequest.transcribe(session: session, settings: model.settingsManager).engine
         if let reason = NetworkPolicy.blockReason(engine: engine, isOnline: model.connectivity.isOnline) {
@@ -90,9 +88,8 @@ final class AppModelBackend: AppBackend {
                 startedAt: session.startedAt, vault: settings.obsidianExportDirectory,
                 folderPattern: settings.obsidianFolderPattern, outputDirectory: settings.outputDirectory)
         }
-        let names = try SpeakerNames.load(audioPath: session.audioPath)
         return try SessionExport.saveNote(
-            markdownPath: markdownPath, names: names, directory: directory,
+            markdownPath: markdownPath, names: SessionFiles.speakerNames(of: session), directory: directory,
             title: session.title, sessionID: session.id)
     }
 

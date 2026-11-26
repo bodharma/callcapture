@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Everything the local web UI is allowed to ask of the app.
 ///
@@ -25,8 +26,10 @@ protocol AppBackend: Sendable {
     func renameSpeaker(id: String, label: String, name: String) async throws
     /// Removes the session and its files; throws `BackendError.busy` while it is in use.
     func delete(id: String) async throws
-    /// Re-runs processing; returns a user-facing reason when it could not run or failed.
-    func reprocess(id: String) async -> String?
+    /// Starts processing in the background and returns once it has started; the
+    /// session's `status` / `errorMessage` report progress and the outcome.
+    /// Throws `.notFound`, or `.busy(reason)` when it cannot start now.
+    func reprocess(id: String) async throws
     /// Writes the note (names applied) into the configured vault; returns the new file.
     func saveToVault(id: String) async throws -> URL
     /// The saved live map, or the live one while that session is still recording.
@@ -77,12 +80,13 @@ extension AppBackend {
     }
 
     func speakerNames(id: String) async throws -> SpeakerNames {
-        try SpeakerNames.load(audioPath: await requireSession(id).audioPath)
+        SessionFiles.speakerNames(of: try await requireSession(id))
     }
 
+    /// Over a damaged sidecar this writes a fresh one, as a rename in the detail view does.
     func renameSpeaker(id: String, label: String, name: String) async throws {
-        let audioPath = try await requireSession(id).audioPath
-        try SpeakerNames.load(audioPath: audioPath).renamed(label, to: name).save(audioPath: audioPath)
+        let session = try await requireSession(id)
+        try SessionFiles.speakerNames(of: session).renamed(label, to: name).save(audioPath: session.audioPath)
     }
 
     func liveDocument(id: String) async throws -> ConversationDocument? {
@@ -93,6 +97,20 @@ extension AppBackend {
 /// Reads of the files a `Session` record points at. Paths only ever come from
 /// the record, never from a request.
 enum SessionFiles {
+    private static let logger = Logger(subsystem: "com.callcapture.app", category: "SessionFiles")
+
+    /// A missing or damaged `_speakers.json` reads as no names (logged), like the
+    /// detail view, so one bad sidecar never hides the transcript or exports.
+    static func speakerNames(of session: Session) -> SpeakerNames {
+        do {
+            return try SpeakerNames.load(audioPath: session.audioPath)
+        } catch {
+            logger.error(
+                "Speaker names unreadable for session \(session.id); using none: \(error.localizedDescription)")
+            return SpeakerNames()
+        }
+    }
+
     /// `[]` when the session has no transcript yet; throws when the file is unreadable.
     static func transcript(of session: Session) throws -> [TranscriptLine] {
         guard let path = session.transcriptRawPath, FileManager.default.fileExists(atPath: path)

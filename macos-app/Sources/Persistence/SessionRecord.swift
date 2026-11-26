@@ -96,6 +96,7 @@ extension SessionRecord {
             costProcessing: costProcessing,
             costCurrency: costCurrency,
             warningMessage: warningMessage,
+            errorMessage: errorMessage,
             status: status
         )
     }
@@ -119,7 +120,7 @@ extension SessionRecord {
         self.transcriptMarkdownPath = session.transcriptMarkdownPath
         self.engineUsed = session.engineUsed
         self.status = session.status
-        self.errorMessage = nil
+        self.errorMessage = session.errorMessage
         self.costTranscription = session.costTranscription
         self.costProcessing = session.costProcessing
         self.costCurrency = session.costCurrency

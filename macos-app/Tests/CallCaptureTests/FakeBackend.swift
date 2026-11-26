@@ -12,7 +12,10 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     private var deleted: [String] = []
     private var revealed: [String] = []
     private var reprocessed: [String] = []
-    private var reprocessResult: String?
+    private var reprocessRefusal: String?
+    private var reprocessOutcome: (status: String, error: String?) = ("transcribed", nil)
+    private var reprocessGate: AsyncStream<Void>.Continuation?
+    private var reprocessRun: Task<Void, Never>?
     private var deleteFailure: BackendError?
     private var vaultDirectory: URL?
     private var status = SystemStatus(online: true, recording: false, version: "test")
@@ -27,7 +30,18 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     var deletedIDs: [String] { lock.withLock { deleted } }
     var revealedIDs: [String] { lock.withLock { revealed } }
     var reprocessedIDs: [String] { lock.withLock { reprocessed } }
-    func failReprocess(with message: String?) { lock.withLock { reprocessResult = message } }
+    /// The next re-process cannot start (`BackendError.busy`).
+    func refuseReprocess(with reason: String?) { lock.withLock { reprocessRefusal = reason } }
+    /// What a released run writes into the session record.
+    func finishReprocess(status: String, error: String?) { lock.withLock { reprocessOutcome = (status, error) } }
+
+    /// Lets the background run finish and waits until it has updated the session.
+    func releaseReprocess() async {
+        let (gate, run) = lock.withLock { (reprocessGate, reprocessRun) }
+        gate?.yield()
+        gate?.finish()
+        await run?.value
+    }
     func failDelete(with error: BackendError?) { lock.withLock { deleteFailure = error } }
     func saveVault(into directory: URL?) { lock.withLock { vaultDirectory = directory } }
     func setStatus(_ value: SystemStatus) { lock.withLock { status = value } }
@@ -51,11 +65,34 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
         }
     }
 
-    func reprocess(id: String) async -> String? {
-        lock.withLock {
+    /// Like production: marks the session as processing and returns at once; the run
+    /// itself waits for `releaseReprocess()`, then records the configured outcome.
+    func reprocess(id: String) async throws {
+        _ = try await requireSession(id)
+        let (released, gate) = AsyncStream<Void>.makeStream()
+        try lock.withLock {
+            if let reprocessRefusal { throw BackendError.busy(reprocessRefusal) }
             reprocessed.append(id)
-            return reprocessResult
+            updateSession(id) { $0.status = "transcribing"; $0.errorMessage = nil }
+            reprocessGate = gate
+            reprocessRun = Task { [weak self] in
+                for await _ in released { break }
+                self?.completeReprocess(id)
+            }
         }
+    }
+
+    private func completeReprocess(_ id: String) {
+        lock.withLock {
+            let outcome = reprocessOutcome
+            updateSession(id) { $0.status = outcome.status; $0.errorMessage = outcome.error }
+        }
+    }
+
+    /// Call with the lock held.
+    private func updateSession(_ id: String, _ change: (inout Session) -> Void) {
+        guard let index = store.firstIndex(where: { $0.id == id }) else { return }
+        change(&store[index])
     }
 
     func saveToVault(id: String) async throws -> URL {
@@ -65,7 +102,7 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
             FileManager.default.fileExists(atPath: markdownPath)
         else { throw BackendError.nothingToSave }
         return try SessionExport.saveNote(
-            markdownPath: markdownPath, names: try SpeakerNames.load(audioPath: session.audioPath),
+            markdownPath: markdownPath, names: SessionFiles.speakerNames(of: session),
             directory: directory, title: session.title, sessionID: session.id)
     }
 
