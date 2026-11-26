@@ -604,13 +604,34 @@ final class AudioCaptureManager {
         micDeviceUID: String?
     ) throws -> AudioObjectID {
         let aggregateUID = UUID().uuidString
+        let description = aggregateDescription(
+            aggregateUID: aggregateUID, tapUUID: tapUUID, micDeviceUID: micDeviceUID)
 
+        var aggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
+        let status = AudioHardwareCreateAggregateDevice(
+            description as CFDictionary,
+            &aggregateDeviceID
+        )
+
+        guard status == noErr else {
+            logger.error(
+                "Aggregate device creation failed: OSStatus=\(status)"
+            )
+            throw CaptureError.tapCreationFailed(status: status)
+        }
+
+        logger.info("Aggregate device created: ID=\(aggregateDeviceID), UID=\(aggregateUID)")
+        return aggregateDeviceID
+    }
+
+    /// Composition dictionary for the private capture aggregate.
+    static func aggregateDescription(aggregateUID: String, tapUUID: UUID,
+                                     micDeviceUID: String?) -> [String: Any] {
         var description: [String: Any] = [
             kAudioAggregateDeviceNameKey: "CallCapture-Aggregate",
             kAudioAggregateDeviceUIDKey: aggregateUID,
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,
-            kAudioAggregateDeviceTapAutoStartKey: true,
             kAudioAggregateDeviceTapListKey: [
                 [
                     kAudioSubTapUIDKey: tapUUID.uuidString,
@@ -628,25 +649,17 @@ final class AudioCaptureManager {
                 kAudioSubDeviceDriftCompensationKey: 1
             ]]
             description[kAudioAggregateDeviceMainSubDeviceKey] = micDeviceUID
+            // No tap auto-start: it makes AudioDeviceStart wait until a tapped
+            // process plays audio, so with nothing playing the mic was never
+            // captured either (0-frame recordings). The mic clocks IO from the
+            // start; the tap contributes silence until something plays.
+            description[kAudioAggregateDeviceTapAutoStartKey] = false
         } else {
-            // Tap-only: the tap auto-starts and drives the aggregate itself.
+            // Tap-only: no real device to clock IO, so the tap auto-starts and
+            // drives the aggregate once audio plays.
             description[kAudioAggregateDeviceSubDeviceListKey] = [] as [[String: Any]]
+            description[kAudioAggregateDeviceTapAutoStartKey] = true
         }
-
-        var aggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
-        let status = AudioHardwareCreateAggregateDevice(
-            description as CFDictionary,
-            &aggregateDeviceID
-        )
-
-        guard status == noErr else {
-            logger.error(
-                "Aggregate device creation failed: OSStatus=\(status)"
-            )
-            throw CaptureError.tapCreationFailed(status: status)
-        }
-
-        logger.info("Aggregate device created: ID=\(aggregateDeviceID), UID=\(aggregateUID)")
-        return aggregateDeviceID
+        return description
     }
 }
