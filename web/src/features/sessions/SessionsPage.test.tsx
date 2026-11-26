@@ -1,6 +1,7 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { mockApi } from "../../test/api";
+import { FakeEventSource } from "../../test/fakeEventSource";
 import { sessionFixture } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 
@@ -69,19 +70,58 @@ describe("SessionsPage", () => {
   });
 
   it("picks up a new session when a recording starts", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
     let recording = false;
     mockApi({
-      "/api/system": () => ({ online: true, recording, version: "1.0" }),
+      "/api/system": system,
       "/api/sessions": () => (recording ? [sessionFixture({ status: "recording", title: "Standup" })] : []),
     });
     renderAt("/sessions");
     expect(await screen.findByText("Nothing recorded yet. Record a call from the menu bar.")).toBeTruthy();
     recording = true;
-    await vi.advanceTimersByTimeAsync(2_100);
+    act(() => FakeEventSource.latest().emit("recording", { state: "recording" }));
     const list = screen.getByRole("navigation", { name: "Sessions" });
     expect(await within(list).findByRole("link", { name: /Standup/ })).toBeTruthy();
-    expect(await screen.findByText("Recording")).toBeTruthy();
+    expect(await screen.findByText("REC")).toBeTruthy();
+  });
+
+  it("resyncs everything after the events stream reconnects", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let sessions: ReturnType<typeof sessionFixture>[] = [];
+    mockApi({ "/api/system": system, "/api/sessions": () => sessions });
+    renderAt("/sessions");
+    expect(await screen.findByText("Nothing recorded yet. Record a call from the menu bar.")).toBeTruthy();
+    const first = FakeEventSource.latest();
+    act(() => {
+      first.open();
+      first.emit("hello", { online: true, recording: "idle" });
+      first.fail();
+    });
+    expect(await screen.findByText("Reconnecting…")).toBeTruthy();
+    // Missed while disconnected: a session was recorded in the meantime.
+    sessions = [sessionFixture({ title: "Recorded while away" })];
+    await vi.advanceTimersByTimeAsync(1_100);
+    const second = FakeEventSource.latest();
+    expect(second).not.toBe(first);
+    act(() => {
+      second.open();
+      second.emit("hello", { online: true, recording: "idle" });
+    });
+    const list = screen.getByRole("navigation", { name: "Sessions" });
+    expect(await within(list).findByRole("link", { name: /Recorded while away/ })).toBeTruthy();
+  });
+
+  it("asks to sign in again when the events stream finds the session gone", async () => {
+    let signedIn = true;
+    mockApi({
+      "/api/system": () => (signedIn ? system : { status: 401, body: { error: "signin" } }),
+      "/api/sessions": [],
+    });
+    renderAt("/sessions");
+    expect(await screen.findByText("Nothing recorded yet. Record a call from the menu bar.")).toBeTruthy();
+    signedIn = false;
+    act(() => FakeEventSource.latest().fail());
+    expect(await screen.findByText("Open CallCapture from the menu bar to sign in again.")).toBeTruthy();
+    expect(FakeEventSource.open()).toHaveLength(0);
   });
 
   it("redirects / to /sessions and shows Not found for unknown routes", async () => {

@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import { Link, NavLink, Outlet, useParams } from "react-router";
 import { errorText } from "../../api/client";
+import { TopBar } from "../../components/TopBar";
 import "../sessions/sessions.css";
 import { useOnline, useSettings } from "./api";
 import { AINotesPane } from "./panes/AINotesPane";
@@ -23,23 +24,11 @@ const PANES: readonly { slug: string; title: string; Pane: ComponentType<PanePro
   { slug: "costs", title: "Costs", Pane: CostsPane },
 ];
 
-/** The settings window: the archive's top bar, the pane list, and the open pane. */
+/** The settings window: the shared top bar, the pane list, and the open pane. */
 export function SettingsPage() {
-  const online = useOnline();
   return (
     <div className="archive">
-      <header className="topbar">
-        <span className="brand">CallCapture</span>
-        <Link className="btn btn--quiet btn--small" to="/sessions">
-          Sessions
-        </Link>
-        <span className="topbar-gap" />
-        {online === false && (
-          <span className="system system--offline" role="status">
-            Offline
-          </span>
-        )}
-      </header>
+      <TopBar />
       <div className="settings-body">
         <nav className="settings-nav" aria-label="Settings">
           {PANES.map((pane) => (

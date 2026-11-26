@@ -2,6 +2,7 @@ import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@ta
 import { useState, type ReactNode } from "react";
 import { ApiError, SignInRequired } from "../api/client";
 import { SignInAgain } from "../components/SignInAgain";
+import { EventsBridge } from "./EventsBridge";
 
 /** Retry only what can recover: never a sign-in problem or a 4xx answer. */
 function shouldRetry(failureCount: number, error: unknown): boolean {
@@ -31,12 +32,17 @@ interface AppProvidersProps {
 }
 
 /**
- * Server-data cache plus the sign-in gate: a 401 from any query or action
- * replaces the whole UI with SignInAgain.
+ * Server-data cache, the app's events stream feeding it, and the sign-in gate:
+ * a 401 from any query, action or events check replaces the whole UI with SignInAgain.
  */
 export function AppProviders({ children, retry = true }: AppProvidersProps) {
   const [signedOut, setSignedOut] = useState(false);
   const [client] = useState(() => makeQueryClient(() => setSignedOut(true), retry));
   if (signedOut) return <SignInAgain />;
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={client}>
+      <EventsBridge />
+      {children}
+    </QueryClientProvider>
+  );
 }

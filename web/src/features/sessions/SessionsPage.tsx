@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, Outlet } from "react-router";
-import { useRefreshOnRecordingChange, useSessions, useSystem } from "./api";
+import { Outlet } from "react-router";
+import { TopBar } from "../../components/TopBar";
+import { useSessions } from "./api";
 import { SessionList } from "./SessionList";
 import "./sessions.css";
 
@@ -15,37 +16,14 @@ function useDebounced(value: string, delay: number): string {
   return debounced;
 }
 
-/** Recording and offline state from the app, polled every 2 s. */
-function SystemState() {
-  const system = useSystem();
-  if (system.data?.recording) {
-    return (
-      <span className="system system--rec" role="status">
-        <span className="rec-dot" aria-hidden="true" />
-        Recording
-      </span>
-    );
-  }
-  if (system.data && !system.data.online) {
-    return (
-      <span className="system system--offline" role="status">
-        Offline
-      </span>
-    );
-  }
-  return null;
-}
-
 /** The archive window: top bar with search, the session list, and the selected session. */
 export function SessionsPage() {
   const [query, setQuery] = useState("");
   const debounced = useDebounced(query, SEARCH_DELAY_MS);
-  useRefreshOnRecordingChange();
 
   return (
     <div className="archive">
-      <header className="topbar">
-        <span className="brand">CallCapture</span>
+      <TopBar>
         <label className="visually-hidden" htmlFor="archive-search">
           Search everything you recorded
         </label>
@@ -62,12 +40,7 @@ export function SessionsPage() {
             if (event.key === "Escape") setQuery("");
           }}
         />
-        <span className="topbar-gap" />
-        <SystemState />
-        <Link className="btn btn--quiet btn--small" to="/settings">
-          Settings
-        </Link>
-      </header>
+      </TopBar>
       <div className="archive-body">
         <SessionList query={debounced} />
         <main className="pane">

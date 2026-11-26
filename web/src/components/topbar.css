@@ -1,0 +1,129 @@
+/* Top bar sections, connection state and the recording control. */
+
+.topbar {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.topbar-nav {
+  display: flex;
+  gap: 14px;
+}
+.topbar-link {
+  padding-bottom: 3px;
+  border-bottom: 2px solid transparent;
+  color: var(--ash);
+  font-size: 13px;
+  text-decoration: none;
+}
+.topbar-link:hover {
+  color: var(--fg);
+}
+.topbar-link.active {
+  border-bottom-color: var(--rust);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.connection {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ash);
+}
+.connection--live {
+  color: var(--signal);
+}
+.connection--reconnecting {
+  color: var(--amber);
+}
+
+.record {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.record-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.record-btn--stop {
+  border-color: var(--fg);
+}
+.record-icon {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--rust);
+}
+.record-icon--stop {
+  border-radius: 1px;
+  background: var(--fg);
+}
+.record-note {
+  max-width: 280px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--ash);
+}
+.record-note--warn {
+  color: var(--amber);
+}
+.record--compact .record-note {
+  max-width: 160px;
+}
+
+.rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The REC mark, after the Live companion and Menu bar boards: a chromatic split that
+   jitters now and then. The only glitch in the UI; reduced motion keeps the static split. */
+.rec-mark {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: 0.08em;
+  color: var(--highlight);
+  text-shadow:
+    1.5px 0 var(--rust),
+    -1.5px 0 #4fc9d6;
+  animation: rec-glitch 3.2s steps(1, end) infinite;
+}
+@keyframes rec-glitch {
+  0%,
+  86%,
+  100% {
+    transform: none;
+    text-shadow:
+      1.5px 0 var(--rust),
+      -1.5px 0 #4fc9d6;
+  }
+  88% {
+    transform: translateX(1px) skewX(-6deg);
+    text-shadow:
+      3px 0 var(--rust),
+      -2.5px 0 #4fc9d6;
+  }
+  90% {
+    transform: translateX(-1px);
+    text-shadow:
+      -1.5px 0 var(--rust),
+      2px 0 #4fc9d6;
+  }
+  92% {
+    transform: none;
+    clip-path: inset(40% 0 20% 0);
+  }
+  94% {
+    clip-path: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec-mark {
+    animation: none;
+  }
+}

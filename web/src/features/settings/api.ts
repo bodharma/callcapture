@@ -1,10 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiSend } from "../../api/client";
-import type { SystemStatus } from "../../api/types";
-import { keys } from "../sessions/api";
+import { useSystem } from "../sessions/api";
 import type { CatalogDTO, KeyTestResult, SecretKey, SettingsDTO, SettingsPatch } from "./types";
 
-const ONLINE_POLL_MS = 5_000;
 const PROGRESS_POLL_MS = 2_000;
 
 export const settingsKeys = {
@@ -12,17 +10,8 @@ export const settingsKeys = {
   catalog: ["catalog"] as const,
 };
 
-/**
- * Recording, network and version from the app, polled every 5 s on the shared
- * ["system"] entry (Task 8 replaces polling with events).
- */
-export function useSystemStatus() {
-  return useQuery({
-    queryKey: keys.system,
-    queryFn: () => apiGet<SystemStatus>("/api/system"),
-    refetchInterval: ONLINE_POLL_MS,
-  });
-}
+/** Recording, network and version from the app; `connectivity` events keep `online` current. */
+export const useSystemStatus = useSystem;
 
 /**
  * Whether the app reports a network; undefined until it has said. Controls are turned

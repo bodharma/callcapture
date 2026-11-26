@@ -1,3 +1,5 @@
+import type { RecordingState } from "./events";
+
 // JSON shapes of the app's sessions API (see Task 5's route table). Optional
 // fields are omitted by the server when absent.
 
@@ -120,6 +122,11 @@ export interface AnalysisDTO {
 
 export interface SystemStatus {
   online: boolean;
+  /** True from the moment a recording starts until it has stopped: playback would be recorded. */
   recording: boolean;
   version: string;
+  /** idle, starting, recording, stopping or processing (older apps omit it). */
+  recordingState?: RecordingState;
+  /** Why the last recording start or stop failed, as the menu shows it. */
+  problem?: string;
 }

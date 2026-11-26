@@ -1,5 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiSend } from "../../api/client";
 import type {
   AnalysisDTO,
@@ -11,8 +10,6 @@ import type {
   TapeMarker,
   TranscriptLine,
 } from "../../api/types";
-
-const POLL_MS = 2_000;
 
 /** Query keys. Everything about one session sits under ["session", id] so it can be invalidated at once. */
 export const keys = {
@@ -35,39 +32,23 @@ interface PartTypes {
 }
 export type SessionPart = keyof PartTypes;
 
-/** Recording state, polled every 2 s (also in a hidden window, so playback stops when a recording starts). */
+/**
+ * Recording state, network and version. Kept current by the events stream
+ * (`hello`, `recording`, `connectivity`); refetched on window focus as a safety net.
+ */
 export function useSystem() {
   return useQuery({
     queryKey: keys.system,
     queryFn: () => apiGet<SystemStatus>("/api/system"),
-    refetchInterval: POLL_MS,
-    refetchIntervalInBackground: true,
   });
 }
 
-/** Statuses that change on their own (capture or processing running), so they are polled. */
-const isChanging = (status: string | undefined): boolean => status === "recording" || status === "transcribing";
-
-/** Every session, newest first; polled every 2 s while any of them records or is processed. */
+/** Every session, newest first; `sessionChanged` and `recording` events refresh it. */
 export function useSessions() {
   return useQuery({
     queryKey: keys.sessions,
     queryFn: () => apiGet<SessionDTO[]>("/api/sessions"),
-    refetchInterval: (query) => (query.state.data?.some((s) => isChanging(s.status)) ? POLL_MS : false),
   });
-}
-
-/** A recording starting or stopping adds or updates a row: refetch the list when the flag flips. */
-export function useRefreshOnRecordingChange() {
-  const client = useQueryClient();
-  const recording = useSystem().data?.recording;
-  const previous = useRef<boolean | undefined>(undefined);
-  useEffect(() => {
-    if (recording === undefined) return;
-    const was = previous.current;
-    previous.current = recording;
-    if (was !== undefined && was !== recording) void client.invalidateQueries({ queryKey: keys.sessions });
-  }, [client, recording]);
 }
 
 export function useSearch(query: string) {
@@ -79,12 +60,11 @@ export function useSearch(query: string) {
   });
 }
 
-/** The session record; polled every 2 s while it records or is being processed. */
+/** The session record; `sessionChanged` events refresh it (status, warnings, errors, files). */
 export function useSession(id: string) {
   return useQuery({
     queryKey: keys.session(id),
     queryFn: () => apiGet<SessionDTO>(sessionPath(id)),
-    refetchInterval: (query) => (isChanging(query.state.data?.status) ? POLL_MS : false),
   });
 }
 
@@ -98,27 +78,22 @@ export function useSessionPart<P extends SessionPart>(id: string, part: P, enabl
   });
 }
 
-/** When a recording or a processing run ends, refetch everything it may have changed. */
-export function useRefreshAfterProcessing(session: SessionDTO | undefined) {
-  const client = useQueryClient();
-  const previous = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (!session) return;
-    const was = previous.current;
-    previous.current = session.status;
-    if (isChanging(was) && session.status !== was) {
-      void client.invalidateQueries({ queryKey: keys.session(session.id) });
-      void client.invalidateQueries({ queryKey: keys.sessions });
-      void client.invalidateQueries({ queryKey: ["search"] });
-    }
-  }, [client, session]);
+/**
+ * Refetches a session and everything shown about it (transcript, note, analysis,
+ * names, markers), except its peaks: the audio of a stored session never changes.
+ */
+export function invalidateSession(client: QueryClient, id: string): Promise<void> {
+  return client.invalidateQueries({
+    queryKey: keys.session(id),
+    predicate: (query) => query.queryKey[2] !== "peaks",
+  });
 }
 
 export function useReprocess(id: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () => apiSend<{ started: boolean }>("POST", `${sessionPath(id)}/reprocess`),
-    // The server marks the record "transcribing" before answering 202; refetch to start polling.
+    // The server marks the record "transcribing" before answering 202; later changes arrive as events.
     onSuccess: () =>
       Promise.all([
         client.invalidateQueries({ queryKey: keys.session(id), exact: true }),

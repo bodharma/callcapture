@@ -4,7 +4,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 import { ApiError, errorText } from "../../api/client";
 import type { SessionDTO, TranscriptLine } from "../../api/types";
 import { languageName, length, recordedAt, usd } from "../../lib/format";
-import { useRefreshAfterProcessing, useSession, useSessionPart, useSystem } from "./api";
+import { useSession, useSessionPart, useSystem } from "./api";
 import { FileActions } from "./FileActions";
 import { Notices } from "./Notices";
 import { PlayerProvider, usePlayer } from "./player";
@@ -46,7 +46,6 @@ function SessionView({ id }: { id: string }) {
   const query = useSession(id);
   const system = useSystem();
   const player = usePlayer();
-  useRefreshAfterProcessing(query.data);
 
   // A search hit opens the session at its moment: positioned, not playing.
   useEffect(() => {

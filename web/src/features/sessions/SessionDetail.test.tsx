@@ -1,7 +1,8 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { SessionDTO } from "../../api/types";
 import { calls, mockApi, type RouteValue } from "../../test/api";
+import { FakeEventSource } from "../../test/fakeEventSource";
 import { analysisFixture, sessionFixture, transcriptFixture } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 
@@ -196,17 +197,38 @@ describe("SessionDetail", () => {
     await waitFor(() => expect(screen.queryByRole("textbox", { name: "Name for Speaker 2" })).toBeNull());
   });
 
-  it("refreshes the page when the session's recording ends", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+  it("refreshes the page when the app reports the session changed", async () => {
     let status = "recording";
     api(sessionFixture({ status }), { "/api/sessions/S1": () => sessionFixture({ status }) });
     renderAt("/sessions/S1");
     const waiting = "Still recording. The tape shows up here after you stop.";
     expect(await screen.findByText(waiting)).toBeTruthy();
     status = "completed";
-    await vi.advanceTimersByTimeAsync(2_100);
+    act(() => FakeEventSource.latest().emit("sessionChanged", { id: "S1" }));
     await waitFor(() => expect(screen.queryByText(waiting)).toBeNull());
     expect(await screen.findByRole("button", { name: "Transcribe" })).toBeTruthy();
+  });
+
+  it("pauses playback as soon as a recording starts", async () => {
+    api();
+    const { container } = renderAt("/sessions/S1");
+    const play = await screen.findByRole("button", { name: "Play" });
+    fireEvent.click(play);
+    const audio = container.querySelector("audio") as HTMLAudioElement;
+    expect(audio.play).toHaveBeenCalled();
+    act(() => FakeEventSource.latest().emit("recording", { state: "starting" }));
+    expect(await screen.findByText("Playback is off while recording")).toBeTruthy();
+    expect(audio.pause).toHaveBeenCalled();
+  });
+
+  it("doesn't poll the session or the recording state", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetchFn = api(sessionFixture({ status: "transcribing" }));
+    renderAt("/sessions/S1");
+    expect(await screen.findByRole("heading", { level: 1 })).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls(fetchFn).filter((call) => call === "GET /api/sessions/S1")).toHaveLength(1);
+    expect(calls(fetchFn).filter((call) => call === "GET /api/system")).toHaveLength(1);
   });
 
   it("links the topic map tab to the live map view", async () => {
