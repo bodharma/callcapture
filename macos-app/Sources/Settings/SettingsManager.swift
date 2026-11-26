@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import OSLog
+import Observation
 
 /// Manages application settings backed by the GRDB `settings` table
 /// and Keychain for sensitive values (API keys).
@@ -16,46 +17,31 @@ final class SettingsManager {
 
     /// Legacy single-key field, used by Groq/OpenAI Whisper.
     var remoteApiKey: String = "" {
-        didSet {
-            KeychainHelper.save(remoteApiKey, for: "remote_api_key")
-            persist("remote_api_key", "keychain")
-        }
+        didSet { persistCredential(remoteApiKey, for: "remote_api_key") }
     }
 
     /// AssemblyAI key — split from `remoteApiKey` so the user can hold both
     /// AssemblyAI + Deepgram credentials at once and the `.auto` provider can
     /// pick between them at transcribe time based on `session.language`.
     var assemblyAIApiKey: String = "" {
-        didSet {
-            KeychainHelper.save(assemblyAIApiKey, for: "assemblyai_api_key")
-            persist("assemblyai_api_key", "keychain")
-        }
+        didSet { persistCredential(assemblyAIApiKey, for: "assemblyai_api_key") }
     }
 
     /// Deepgram key (see `assemblyAIApiKey`).
     var deepgramApiKey: String = "" {
-        didSet {
-            KeychainHelper.save(deepgramApiKey, for: "deepgram_api_key")
-            persist("deepgram_api_key", "keychain")
-        }
+        didSet { persistCredential(deepgramApiKey, for: "deepgram_api_key") }
     }
 
     var llmEngine: LLMEngine = .claude { didSet { persist("llm_engine", llmEngine.rawValue) } }
 
     var llmApiKey: String = "" {
-        didSet {
-            KeychainHelper.save(llmApiKey, for: "llm_api_key")
-            persist("llm_api_key", "keychain")
-        }
+        didSet { persistCredential(llmApiKey, for: "llm_api_key") }
     }
 
     var llmProvider: LLMProvider = .openrouter { didSet { persist("llm_provider", llmProvider.rawValue) } }
 
     var openRouterApiKey: String = "" {
-        didSet {
-            KeychainHelper.save(openRouterApiKey, for: "openrouter_api_key")
-            persist("openrouter_api_key", "keychain")
-        }
+        didSet { persistCredential(openRouterApiKey, for: "openrouter_api_key") }
     }
 
     var llmModel: String = "google/gemini-2.5-flash" {
@@ -102,6 +88,8 @@ final class SettingsManager {
     var markdownProfile: MarkdownProfile = .meetingNotes { didSet { persist("markdown_profile", markdownProfile.rawValue) } }
 
     private let database: AppDatabase
+    private let credentialStore: any CredentialStore
+    @ObservationIgnored private var isLoading = true
     private static let logger = Logger(
         subsystem: "com.callcapture.app",
         category: "SettingsManager"
@@ -110,9 +98,11 @@ final class SettingsManager {
     /// Creates the settings manager and loads persisted values.
     ///
     /// - Parameter database: The GRDB-backed application database.
-    init(database: AppDatabase) {
+    init(database: AppDatabase, credentialStore: any CredentialStore = KeychainCredentialStore()) {
         self.database = database
+        self.credentialStore = credentialStore
         loadAll()
+        isLoading = false
     }
 
     // MARK: - Private Helpers
@@ -127,7 +117,14 @@ final class SettingsManager {
             .path
     }
 
+    private func persistCredential(_ value: String, for key: String) {
+        guard !isLoading else { return }
+        credentialStore.save(value, for: key)
+        persist(key, "keychain")
+    }
+
     private func persist(_ key: String, _ value: String) {
+        guard !isLoading else { return }
         do {
             try database.dbPool.write { db in
                 try db.execute(
@@ -180,11 +177,11 @@ final class SettingsManager {
         if let raw = rows["llm_fallback_rate_per_1m"], let v = Double(raw) { llmFallbackRatePer1M = v }
 
         // API keys live in Keychain, not SQLite.
-        remoteApiKey = KeychainHelper.load(for: "remote_api_key")
-        assemblyAIApiKey = KeychainHelper.load(for: "assemblyai_api_key")
-        deepgramApiKey = KeychainHelper.load(for: "deepgram_api_key")
-        llmApiKey = KeychainHelper.load(for: "llm_api_key")
-        openRouterApiKey = KeychainHelper.load(for: "openrouter_api_key")
+        remoteApiKey = credentialStore.load(for: "remote_api_key")
+        assemblyAIApiKey = credentialStore.load(for: "assemblyai_api_key")
+        deepgramApiKey = credentialStore.load(for: "deepgram_api_key")
+        llmApiKey = credentialStore.load(for: "llm_api_key")
+        openRouterApiKey = credentialStore.load(for: "openrouter_api_key")
 
         Self.logger.info("Settings loaded (\(rows.count) persisted keys)")
     }

@@ -12,7 +12,7 @@ struct JobRequestEngineTests {
     private func makeSettings() throws -> (settings: SettingsManager, path: String) {
         let path = NSTemporaryDirectory() + "cc-jobreq-\(UUID().uuidString).db"
         let db = try AppDatabase(path: path)
-        return (SettingsManager(database: db), path)
+        return (SettingsManager(database: db, credentialStore: InMemoryCredentialStore()), path)
     }
 
     private func makeSession(engineUsed: String?, language: String = "auto") -> Session {

@@ -10,12 +10,12 @@ struct PricingSettingsTests {
     private func makeSettings() throws -> (settings: SettingsManager, db: AppDatabase, path: String) {
         let path = NSTemporaryDirectory() + "cc-pricing-\(UUID().uuidString).db"
         let db = try AppDatabase(path: path)
-        return (SettingsManager(database: db), db, path)
+        return (SettingsManager(database: db, credentialStore: InMemoryCredentialStore()), db, path)
     }
 
     /// Constructs a new SettingsManager on the same DB to verify persisted reload.
     private func reloadSettings(_ db: AppDatabase) -> SettingsManager {
-        SettingsManager(database: db)
+        SettingsManager(database: db, credentialStore: InMemoryCredentialStore())
     }
 
     @Test("default rates are seeded to the worker's pricing.py defaults")

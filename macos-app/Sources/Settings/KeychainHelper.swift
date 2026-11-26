@@ -2,6 +2,16 @@ import Foundation
 import OSLog
 import Security
 
+protocol CredentialStore {
+    func save(_ value: String, for account: String)
+    func load(for account: String) -> String
+}
+
+struct KeychainCredentialStore: CredentialStore {
+    func save(_ value: String, for account: String) { KeychainHelper.save(value, for: account) }
+    func load(for account: String) -> String { KeychainHelper.load(for: account) }
+}
+
 /// Minimal Keychain wrapper for storing and retrieving API key strings.
 ///
 /// Each key is stored as a generic password under the app's service name,
