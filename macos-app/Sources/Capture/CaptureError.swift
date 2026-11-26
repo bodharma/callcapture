@@ -4,6 +4,7 @@ import Foundation
 enum CaptureError: LocalizedError {
     case tapCreationFailed(status: OSStatus)
     case noDefaultOutputDevice
+    case noDefaultInputDevice
     case deviceNotProducingAudio
     case fileWriterInitFailed(underlying: Error)
     case alreadyRecording
@@ -16,7 +17,9 @@ enum CaptureError: LocalizedError {
             "Failed to create audio tap (OSStatus: \(status)). "
             + "Check System Audio Recording permission in System Settings > Privacy & Security."
         case .noDefaultOutputDevice:
-            "No default audio output device found."
+            "No audio output device is available. Connect headphones or choose an output device."
+        case .noDefaultInputDevice:
+            "No microphone is available. Connect a microphone or turn off Include Microphone."
         case .deviceNotProducingAudio:
             "Target audio device is not producing audio. "
             + "Start playing audio before recording."

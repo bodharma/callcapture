@@ -28,7 +28,51 @@ enum AudioDeviceEnumerator {
         devices(havingChannelsInScope: kAudioObjectPropertyScopeOutput)
     }
 
+    static func defaultInputDevice() -> AudioDeviceInfo? {
+        defaultDevice(selector: kAudioHardwarePropertyDefaultInputDevice,
+                      scope: kAudioObjectPropertyScopeInput)
+    }
+
+    static func defaultOutputDevice() -> AudioDeviceInfo? {
+        defaultDevice(selector: kAudioHardwarePropertyDefaultOutputDevice,
+                      scope: kAudioObjectPropertyScopeOutput)
+    }
+
+    /// Prefer a connected override; otherwise use the current system default.
+    static func resolveDevice(
+        preferredUID: String?,
+        devices: [AudioDeviceInfo],
+        defaultDevice: AudioDeviceInfo?
+    ) -> AudioDeviceInfo? {
+        if let preferredUID, let device = devices.first(where: { $0.uid == preferredUID }) {
+            return device
+        }
+        return devices.first { $0.uid == defaultDevice?.uid }
+    }
+
     // MARK: - Private
+
+    private static func defaultDevice(
+        selector: AudioObjectPropertySelector,
+        scope: AudioObjectPropertyScope
+    ) -> AudioDeviceInfo? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var id = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id
+        ) == noErr,
+              id != kAudioObjectUnknown,
+              channelCount(for: id, scope: scope) > 0,
+              let uid = stringProperty(id, kAudioDevicePropertyDeviceUID),
+              let name = stringProperty(id, kAudioObjectPropertyName)
+        else { return nil }
+        return AudioDeviceInfo(id: id, uid: uid, name: name)
+    }
 
     private static func devices(
         havingChannelsInScope scope: AudioObjectPropertyScope
