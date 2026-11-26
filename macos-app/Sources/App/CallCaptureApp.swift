@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreAudio
 import OSLog
 
 /// Application state representing the current recording lifecycle phase.
@@ -39,6 +40,12 @@ struct CallCaptureApp: App {
                 .environment(appModel)
         }
 
+        Window("Live Meeting", id: "live-meeting") {
+            LiveMeetingWorkspace(model: appModel.liveMeeting.model,
+                                 processingStatus: appModel.liveMeeting.status,
+                                 microphoneEnabled: appModel.liveMicrophoneEnabled)
+        }
+
         Window("Diagnostics", id: "diagnostics") {
             DiagnosticsView()
                 .environment(appModel)
@@ -70,10 +77,23 @@ final class AppModel {
     /// Available capture devices, refreshed from the system.
     var inputDevices: [AudioDeviceInfo] = []
     var outputDevices: [AudioDeviceInfo] = []
-    /// Selected device UIDs. `nil` output = system default; `nil` mic = no mic.
+    var defaultInputDevice: AudioDeviceInfo?
+    var defaultOutputDevice: AudioDeviceInfo?
+    /// A nil override follows the corresponding system default.
     var selectedOutputUID: String?
     var selectedMicUID: String?
+    var includeMicrophone = true
     var selectedRecordingType: RecordingType = .callMeeting
+    var liveMeetingEnabled = false
+    var automaticLiveMemos = false
+    var selectedSpeechLanguage: SpokenLanguage = .auto
+    var selectedNotesLanguage: SpokenLanguage = .auto
+    var liveMicrophoneEnabled = true
+    private(set) var recordingTransitionInProgress = false
+    let liveMeeting = LiveMeetingController()
+
+    @ObservationIgnored
+    private var audioDeviceListeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
 
     let captureManager = AudioCaptureManager()
     let sessionManager: SessionManager
@@ -97,7 +117,45 @@ final class AppModel {
         self.sessionManager = SessionManager(database: database)
         self.settingsManager = SettingsManager(database: database)
         AppModel.shared = self
+        observeAudioDevices()
         refreshAudioDevices()
+    }
+
+    deinit {
+        removeAudioDeviceListeners()
+    }
+
+    private func observeAudioDevices() {
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.refreshAudioDevices()
+        }
+        for selector in [kAudioHardwarePropertyDevices,
+                         kAudioHardwarePropertyDefaultInputDevice,
+                         kAudioHardwarePropertyDefaultOutputDevice] {
+            var address = AudioObjectPropertyAddress(
+                mSelector: selector,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            let status = AudioObjectAddPropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject), &address, .main, listener
+            )
+            if status == noErr {
+                audioDeviceListeners.append((address, listener))
+            } else {
+                Self.logger.error("Audio device listener failed: OSStatus=\(status)")
+            }
+        }
+    }
+
+    private func removeAudioDeviceListeners() {
+        for (address, listener) in audioDeviceListeners {
+            var address = address
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject), &address, .main, listener
+            )
+        }
+        audioDeviceListeners.removeAll()
     }
 
     /// Reloads the available input/output devices from the system and prunes
@@ -105,6 +163,8 @@ final class AppModel {
     func refreshAudioDevices() {
         inputDevices = AudioDeviceEnumerator.inputDevices()
         outputDevices = AudioDeviceEnumerator.outputDevices()
+        defaultInputDevice = AudioDeviceEnumerator.defaultInputDevice()
+        defaultOutputDevice = AudioDeviceEnumerator.defaultOutputDevice()
 
         if let mic = selectedMicUID,
            !inputDevices.contains(where: { $0.uid == mic }) {
@@ -122,9 +182,12 @@ final class AppModel {
     /// Synchronously releases audio capture and any running worker process.
     /// Called from `AppDelegate` on app termination and catchable signals.
     func teardownForExit() {
+        removeAudioDeviceListeners()
         transcriptionTask?.cancel()
         pythonBridge.cancelCurrentJob()
         captureManager.emergencyStop()
+        // AppDelegate dispatches termination and signal handlers on the main queue.
+        MainActor.assumeIsolated { liveMeeting.cancel() }
     }
 
     /// Cancels an in-progress transcription. The recorded audio is preserved
@@ -148,7 +211,10 @@ final class AppModel {
 
     /// Toggles recording on/off. Creates a new session on start,
     /// finalizes capture on stop.
-    func toggleRecording() async {
+    @MainActor func toggleRecording() async {
+        guard !recordingTransitionInProgress else { return }
+        recordingTransitionInProgress = true
+        defer { recordingTransitionInProgress = false }
         switch state {
         case .idle, .error:
             state = .idle
@@ -316,30 +382,80 @@ final class AppModel {
         }
     }
 
-    private func startRecording() async {
+    @MainActor private func startRecording() async {
         do {
+            // Serialize the device snapshot with HAL notifications and picker changes.
+            let (output, mic) = try await MainActor.run {
+                refreshAudioDevices()
+                guard let output = AudioDeviceEnumerator.resolveDevice(
+                    preferredUID: selectedOutputUID,
+                    devices: outputDevices,
+                    defaultDevice: defaultOutputDevice
+                ) else { throw CaptureError.noDefaultOutputDevice }
+
+                let mic: AudioDeviceInfo?
+                if includeMicrophone {
+                    guard let input = AudioDeviceEnumerator.resolveDevice(
+                        preferredUID: selectedMicUID,
+                        devices: inputDevices,
+                        defaultDevice: defaultInputDevice
+                    ) else { throw CaptureError.noDefaultInputDevice }
+                    mic = input
+                } else {
+                    mic = nil
+                }
+                return (output, mic)
+            }
+
             let session = sessionManager.createSession(
                 sourceApp: "System Audio",
-                recordingType: selectedRecordingType
+                recordingType: selectedRecordingType,
+                language: selectedSpeechLanguage.rawValue,
+                notesLanguage: selectedNotesLanguage.rawValue
             )
             let outputURL = session.audioFileURL
+            liveMicrophoneEnabled = mic != nil
+            if liveMeetingEnabled {
+                let provider = settingsManager.llmProvider
+                let baseURL = provider == .openrouter ? "https://openrouter.ai/api/v1" : settingsManager.localLLMBaseURL
+                let key = provider == .openrouter ? settingsManager.openRouterApiKey : "ollama"
+                let configuredURL = URL(string: baseURL)
+                let url = configuredURL ?? URL(string: "http://127.0.0.1:11434/v1")!
+                liveMeeting.start(session: session, bridge: pythonBridge,
+                    modelName: settingsManager.whisperModel.rawValue,
+                    speechLanguage: selectedSpeechLanguage.rawValue,
+                    notesLanguage: selectedNotesLanguage.rawValue,
+                    configuration: LiveNotesConfiguration(enabled: automaticLiveMemos && configuredURL != nil, baseURL: url,
+                                                          apiKey: automaticLiveMemos ? key : "", model: settingsManager.llmModel))
+                if automaticLiveMemos && configuredURL == nil {
+                    liveMeeting.model.markGap("Invalid memo provider URL; local speech and manual notes continue. Fix the provider in Settings before the next meeting.")
+                }
+                captureManager.liveBuffer = liveMeeting.buffer
+            } else { captureManager.liveBuffer = nil }
             try await captureManager.startCapture(
                 outputPath: outputURL,
-                outputDeviceUID: selectedOutputUID,
-                micDeviceUID: selectedMicUID
+                outputDeviceUID: output.uid,
+                micDeviceUID: mic?.uid
             )
             state = .recording
             Self.logger.info("Recording started for session \(session.id)")
         } catch {
             state = .error
             lastError = error.localizedDescription
+            captureManager.liveBuffer = nil
+            liveMeeting.cancel()
             Self.logger.error("Failed to start recording: \(error)")
         }
     }
 
-    private func stopRecording() async {
+    @MainActor private func stopRecording() async {
         do {
             try await captureManager.stopCapture()
+            captureManager.liveBuffer = nil
+            if liveMeeting.model.document.isRecording {
+                await liveMeeting.stop(finalOffset: Double(captureManager.liveFrameOffset) / 16_000,
+                                       sources: liveMicrophoneEnabled ? [.mic, .system] : [.system])
+            }
 
             guard let session = sessionManager.currentSession else {
                 state = .idle
@@ -373,6 +489,8 @@ final class AppModel {
         } catch {
             state = .error
             lastError = error.localizedDescription
+            captureManager.liveBuffer = nil
+            liveMeeting.cancel()
             Self.logger.error("Failed to stop recording: \(error)")
         }
     }

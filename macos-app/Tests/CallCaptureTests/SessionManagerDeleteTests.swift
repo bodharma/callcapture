@@ -17,6 +17,7 @@ struct SessionManagerDeleteTests {
             URL(fileURLWithPath: baseNoExt.path + "_transcript.json"),
             URL(fileURLWithPath: baseNoExt.path + "_notes.md"),
             URL(fileURLWithPath: baseNoExt.path + "_analysis.json"),
+            URL(fileURLWithPath: baseNoExt.path + "_live.json"),
         ]
         // Drop the placeholder before writing.
         let kept = urls.filter { !$0.lastPathComponent.contains("wav.mic") }

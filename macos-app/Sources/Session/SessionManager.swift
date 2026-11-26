@@ -113,7 +113,9 @@ final class SessionManager {
     @discardableResult
     func createSession(
         sourceApp: String,
-        recordingType: RecordingType = .callMeeting
+        recordingType: RecordingType = .callMeeting,
+        language: String = "auto",
+        notesLanguage: String = "auto"
     ) -> Session {
         let sessionId = UUID().uuidString
         let now = Date()
@@ -133,6 +135,8 @@ final class SessionManager {
             startedAt: now,
             audioPath: audioPath.path,
             recordingType: recordingType.rawValue,
+            language: language,
+            notesLanguage: notesLanguage,
             status: "recording"
         )
 
@@ -167,6 +171,8 @@ final class SessionManager {
             durationSec: now.timeIntervalSince(session.startedAt),
             audioPath: session.audioPath,
             recordingType: session.recordingType,
+            language: session.language,
+            notesLanguage: session.notesLanguage,
             analysisPath: session.analysisPath,
             status: "completed"
         )
@@ -334,6 +340,7 @@ final class SessionManager {
                     "_system.wav",
                     "_diarization.json",
                     "_system_diarization.json",
+                    "_live.json",
                 ]
                 for suffix in siblings {
                     try? FileManager.default.removeItem(atPath: baseNoExt + suffix)

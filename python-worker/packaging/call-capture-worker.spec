@@ -6,7 +6,7 @@
 # looks for Contents/Resources/worker/call-capture-worker.
 import os
 
-from PyInstaller.utils.hooks import collect_submodules, copy_metadata
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules, copy_metadata
 
 # The build runs from python-worker/ (`pyinstaller packaging/...spec`), but the
 # spec's own dir is packaging/. The package root that holds `app/` is the parent
@@ -26,20 +26,23 @@ hiddenimports = [
     "audeer",
     "audiofile",
     "numpy",
+    "_pywhispercpp",
 ]
-hiddenimports += collect_submodules("app")
+hiddenimports += collect_submodules("app") + collect_submodules("pywhispercpp")
 
-datas = copy_metadata("openai") + copy_metadata("pydantic")
+datas = copy_metadata("openai") + copy_metadata("pydantic") + copy_metadata("pywhispercpp")
+datas += collect_data_files("pywhispercpp", excludes=[".dylibs/*"])
+binaries = collect_dynamic_libs("pywhispercpp")
 
 a = Analysis(
     [os.path.join(SPECPATH, "worker_entry.py")],
     pathex=[WORKER_ROOT],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["pywhispercpp"],
+    excludes=[],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

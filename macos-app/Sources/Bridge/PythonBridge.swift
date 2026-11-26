@@ -145,25 +145,8 @@ final class PythonBridge: @unchecked Sendable {
     func healthCheck() async -> String? {
         let process = Process()
 
-        if devMode {
-            guard let python3 = Self.findPythonInterpreter(
-                workerDir: pythonWorkerDirectory
-            ) else {
-                Self.logger.warning("python3 not found for dev mode health check")
-                return nil
-            }
-            process.executableURL = URL(fileURLWithPath: python3)
-            process.arguments = ["-m", "app.cli", "--version"]
-            process.currentDirectoryURL = URL(
-                fileURLWithPath: pythonWorkerDirectory
-            )
-        } else {
-            guard let workerPath = Self.findWorkerBinary() else {
-                return nil
-            }
-            process.executableURL = URL(fileURLWithPath: workerPath)
-            process.arguments = ["--version"]
-        }
+        guard let configuration = try? workerConfiguration(arguments: ["--version"]) else { return nil }
+        configuration.apply(to: process)
 
         let stdout = Pipe()
         process.standardOutput = stdout
@@ -190,37 +173,8 @@ final class PythonBridge: @unchecked Sendable {
     private func executeWorker(request: JobRequest, env: [String: String]) async throws -> JobResult {
         let process = Process()
 
-        if devMode {
-            guard let python3 = Self.findPythonInterpreter(
-                workerDir: pythonWorkerDirectory
-            ) else {
-                throw BridgeError.workerNotFound(
-                    searchedPaths: ["\(pythonWorkerDirectory)/.venv/bin/python", "python3 (via PATH)"]
-                )
-            }
-            process.executableURL = URL(fileURLWithPath: python3)
-            process.arguments = ["-m", "app.cli", request.command]
-            process.currentDirectoryURL = URL(
-                fileURLWithPath: pythonWorkerDirectory
-            )
-            Self.logger.info(
-                "Dev mode: running python3 -m app.cli \(request.command) in \(self.pythonWorkerDirectory)"
-            )
-        } else {
-            guard let workerPath = Self.findWorkerBinary() else {
-                throw BridgeError.workerNotFound(
-                    searchedPaths: Self.searchPaths()
-                )
-            }
-            process.executableURL = URL(fileURLWithPath: workerPath)
-            process.arguments = [request.command]
-        }
-
-        var processEnv = ProcessInfo.processInfo.environment
-        for (key, value) in env where !value.isEmpty {
-            processEnv[key] = value
-        }
-        process.environment = processEnv
+        let configuration = try workerConfiguration(arguments: [request.command], extraEnvironment: env)
+        configuration.apply(to: process)
 
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
@@ -435,6 +389,25 @@ final class PythonBridge: @unchecked Sendable {
         }
     }
 
+    /// Shared launch contract for batch jobs, live speech and explicit model preparation.
+    func workerConfiguration(arguments: [String], extraEnvironment: [String: String] = [:]) throws -> WorkerProcessConfiguration {
+        var environment = ProcessInfo.processInfo.environment
+        for (key, value) in extraEnvironment where !value.isEmpty { environment[key] = value }
+        if devMode {
+            guard let interpreter = Self.findPythonInterpreter(workerDir: pythonWorkerDirectory) else {
+                throw BridgeError.workerNotFound(searchedPaths: [pythonWorkerDirectory + "/.venv/bin/python", "python3"])
+            }
+            return WorkerProcessConfiguration(executableURL: URL(fileURLWithPath: interpreter),
+                arguments: ["-m", "app.cli"] + arguments,
+                directory: URL(fileURLWithPath: pythonWorkerDirectory), environment: environment)
+        }
+        guard let worker = Self.findWorkerBinary() else {
+            throw BridgeError.workerNotFound(searchedPaths: Self.searchPaths())
+        }
+        return WorkerProcessConfiguration(executableURL: URL(fileURLWithPath: worker), arguments: arguments,
+                                          directory: nil, environment: environment)
+    }
+
     // MARK: - Worker Discovery
 
     private static func findWorkerBinary() -> String? {
@@ -547,5 +520,19 @@ final class PythonBridge: @unchecked Sendable {
 
         // Fall back to a relative path for development
         return "./python-worker"
+    }
+}
+
+struct WorkerProcessConfiguration: Sendable {
+    let executableURL: URL
+    let arguments: [String]
+    let directory: URL?
+    let environment: [String: String]
+
+    func apply(to process: Process) {
+        process.executableURL = executableURL
+        process.arguments = arguments
+        process.currentDirectoryURL = directory
+        process.environment = environment
     }
 }

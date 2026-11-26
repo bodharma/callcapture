@@ -34,6 +34,8 @@ struct SessionDetailView: View {
     @State private var liveSession: Session?
     /// Decoded conversation analysis sidecar for the insights panel.
     @State private var analysis: ConversationAnalysis?
+    @State private var savedLiveModel: LiveMeetingModel?
+    @State private var showLiveMap = false
 
     private static let logger = Logger(
         subsystem: "com.callcapture.app",
@@ -52,6 +54,10 @@ struct SessionDetailView: View {
                 transcriptSection
                 markdownSection
                 insightsSection
+                if hasLiveMap {
+                    Button("Open live conversation map") { openLiveMap() }
+                        .buttonStyle(.bordered)
+                }
                 errorSection
                 actionButtons
             }
@@ -71,6 +77,14 @@ struct SessionDetailView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("The audio, transcript, note, and analysis files will be permanently removed.")
+        }
+        .sheet(isPresented: $showLiveMap) {
+            if let savedLiveModel {
+                LiveMeetingWorkspace(model: savedLiveModel,
+                    processingStatus: savedLiveModel.document.isRecording ? appModel.liveMeeting.status : "Saved live map",
+                    microphoneEnabled: savedLiveModel.document.isRecording ? appModel.liveMicrophoneEnabled :
+                        FileManager.default.fileExists(atPath: URL(fileURLWithPath: session.audioPath).deletingPathExtension().path + "_mic.wav"))
+            }
         }
         .onAppear {
             editableTitle = session.title
@@ -255,7 +269,7 @@ struct SessionDetailView: View {
 
     @ViewBuilder
     private var errorSection: some View {
-        if current.status == "error", let error = transcriptionError {
+        if let error = transcriptionError {
             GroupBox("Error") {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.subheadline)
@@ -306,7 +320,7 @@ struct SessionDetailView: View {
                 Label("Delete", systemImage: "trash")
             }
             .buttonStyle(.bordered)
-            .disabled(isTranscribing || appModel.state == .transcribing)
+            .disabled(isTranscribing || appModel.state == .transcribing || current.status == "recording")
 
             Menu("Export") {
                 Button("Markdown (.md)") { exportFile(extension: "md") }
@@ -320,6 +334,22 @@ struct SessionDetailView: View {
     }
 
     // MARK: - Actions
+
+    private var hasLiveMap: Bool {
+        appModel.liveMeeting.model.document.sessionID == session.id || FileManager.default.fileExists(
+            atPath: URL(fileURLWithPath: session.audioPath).deletingPathExtension().path + "_live.json")
+    }
+
+    private func openLiveMap() {
+        do {
+            // One shared writer per saved map: the active/stopped session model, or a single
+            // loaded instance reused by every sheet, never a second mutable copy.
+            let active = appModel.liveMeeting.model
+            savedLiveModel = active.document.sessionID == session.id
+                ? active : try LiveMeetingModel.opened(audioPath: session.audioPath)
+            showLiveMap = true
+        } catch { transcriptionError = "Could not open live map: \(error.localizedDescription)" }
+    }
 
     private func transcribeButton(label: String) -> some View {
         Button(label) {
@@ -365,7 +395,6 @@ struct SessionDetailView: View {
         panel.allowedContentTypes = [.plainText]
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        try? FileManager.default.removeItem(at: url)
         do {
             try FileManager.default.copyItem(
                 at: URL(fileURLWithPath: source), to: url
@@ -404,17 +433,10 @@ struct SessionDetailView: View {
 
         let destDir = URL(fileURLWithPath: baseDir)
             .appendingPathComponent(subfolder, isDirectory: true)
-        let destURL = destDir
-            .appendingPathComponent("\(safeFileName(current.title)).md")
 
         do {
-            try FileManager.default.createDirectory(
-                at: destDir, withIntermediateDirectories: true
-            )
-            try? FileManager.default.removeItem(at: destURL)
-            try FileManager.default.copyItem(
-                at: URL(fileURLWithPath: mdPath), to: destURL
-            )
+            let destURL = try SessionNoteExport.copy(source: URL(fileURLWithPath: mdPath), directory: destDir,
+                                                     title: current.title, sessionID: current.id)
             saveMessage = "Saved to \(destURL.path)"
             Self.logger.info("Saved note to \(destURL.path)")
         } catch {

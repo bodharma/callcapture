@@ -33,6 +33,16 @@ struct ContentView: View {
             if appModel.state == .idle || appModel.state == .error {
                 devicePickers(appModel: appModel)
             }
+            if appModel.state == .recording {
+                Text("Device choices apply when recording starts. Unplugging an active device may interrupt audio.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if appModel.liveMeetingEnabled {
+                Button("Open Live Meeting") { showWindow("live-meeting") }
+                    .buttonStyle(.bordered)
+                Text(appModel.liveMeeting.status).font(.caption2).foregroundStyle(.secondary)
+            }
             recordButton
             transcriptionProgress
             lastSessionInfo
@@ -59,15 +69,47 @@ struct ContentView: View {
                 }
             }
             Picker("Output", selection: $appModel.selectedOutputUID) {
-                Text("System Default").tag(String?.none)
+                Text("System Default (\(appModel.defaultOutputDevice?.name ?? "Unavailable"))")
+                    .tag(String?.none)
                 ForEach(appModel.outputDevices) { device in
                     Text(device.name).tag(String?.some(device.uid))
                 }
             }
-            Picker("Mic", selection: $appModel.selectedMicUID) {
-                Text("None").tag(String?.none)
-                ForEach(appModel.inputDevices) { device in
-                    Text(device.name).tag(String?.some(device.uid))
+            Picker("Speech", selection: $appModel.selectedSpeechLanguage) {
+                ForEach(SpokenLanguage.allCases) { Text($0.displayName).tag($0) }
+            }
+            Picker("Notes", selection: $appModel.selectedNotesLanguage) {
+                ForEach(SpokenLanguage.allCases) { Text($0.displayName).tag($0) }
+            }
+            Toggle("Local live meeting", isOn: $appModel.liveMeetingEnabled)
+                .toggleStyle(.checkbox)
+            if appModel.liveMeetingEnabled {
+                Text("Speech stays on this Mac. Model: \(appModel.settingsManager.whisperModel.rawValue). Auto/mixed speech is experimental and may omit or mistranscribe words. Choose English or Ukrainian when possible; recording and manual notes remain available.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Button(appModel.liveMeeting.isPreparing ? "Downloading model…" : "Download live model") {
+                    appModel.liveMeeting.prepareModel(bridge: appModel.pythonBridge,
+                                                     modelName: appModel.settingsManager.whisperModel.rawValue)
+                }.disabled(appModel.liveMeeting.isPreparing)
+                if appModel.liveMeeting.isPreparing {
+                    Button("Cancel download") { appModel.liveMeeting.cancel() }
+                }
+                Toggle("Automatic memos", isOn: $appModel.automaticLiveMemos).toggleStyle(.checkbox)
+                if appModel.automaticLiveMemos {
+                    Text(appModel.settingsManager.llmProvider == .openrouter
+                         ? "Committed transcript goes to OpenRouter · \(appModel.settingsManager.llmModel). No speech is uploaded."
+                         : "Committed transcript goes to the configured LLM server · \(appModel.settingsManager.llmModel).")
+                        .font(.caption2).foregroundStyle(.secondary)
+                } else { Text("Manual notes and local transcript only.").font(.caption2).foregroundStyle(.secondary) }
+            }
+            Toggle("Include Microphone", isOn: $appModel.includeMicrophone)
+                .toggleStyle(.checkbox)
+            if appModel.includeMicrophone {
+                Picker("Mic", selection: $appModel.selectedMicUID) {
+                    Text("System Default (\(appModel.defaultInputDevice?.name ?? "Unavailable"))")
+                        .tag(String?.none)
+                    ForEach(appModel.inputDevices) { device in
+                        Text(device.name).tag(String?.some(device.uid))
+                    }
                 }
             }
         }
@@ -90,7 +132,10 @@ struct ContentView: View {
     @ViewBuilder
     private var recordButton: some View {
         Button {
-            Task { await appModel.toggleRecording() }
+            Task {
+                await appModel.toggleRecording()
+                if appModel.state == .recording && appModel.liveMeetingEnabled { showWindow("live-meeting") }
+            }
         } label: {
             Label(
                 appModel.state == .recording ? "Stop Recording" : "Start Recording",
@@ -100,7 +145,7 @@ struct ContentView: View {
         }
         .buttonStyle(.borderedProminent)
         .tint(appModel.state == .recording ? .red : .accentColor)
-        .disabled(appModel.state == .transcribing)
+        .disabled(appModel.state == .transcribing || appModel.liveMeeting.isPreparing || appModel.recordingTransitionInProgress)
     }
 
     @ViewBuilder

@@ -23,6 +23,10 @@ final class AudioCaptureManager {
     private var aggregateDeviceID: AudioObjectID = .init(kAudioObjectUnknown)
     private var ioProcID: AudioDeviceIOProcID?
     private var fileWriter: AudioFileWriter?
+    /// Assigned before IO starts and cleared after IO stops; the callback only tries admission.
+    @ObservationIgnored var liveBuffer: LivePCMBuffer?
+    @ObservationIgnored private(set) var liveFrameOffset: Int = 0
+
 
     /// Mono float32 format at the aggregate's input sample rate. All IO buffers
     /// (tap channels + any mic channels) are downmixed into this before
@@ -160,6 +164,7 @@ final class AudioCaptureManager {
         self.converter = converter
         self.fileWriter = writer
         self.bufferCount = 0
+        self.liveFrameOffset = 0
 
         // Record the tap channel count so the IO proc can split mic vs system.
         self.systemTapChannels = Self.tapChannelCount(tapID: self.tapID)
@@ -409,9 +414,13 @@ final class AudioCaptureManager {
         }
 
         // Full mix (all buffers) -> main writer (unchanged behavior).
+        let liveStart = Double(liveFrameOffset) / Self.targetSampleRate
+        var convertedFrames = 0
         if let mix = downmix(abl, indices: 0..<abl.count, frameCount: frameCount, format: mixFormat) {
-            handleAudioBuffer(mix, converter: converter, outputFormat: targetFormat, writer: writer)
+            convertedFrames = handleAudioBuffer(mix, converter: converter, outputFormat: targetFormat,
+                writer: writer, liveSource: micWriter == nil ? .system : nil, liveStart: liveStart)
         }
+        defer { liveFrameOffset += convertedFrames }
 
         // Separate stems (only when mic writers were created).
         if let micWriter, let systemWriter,
@@ -424,10 +433,10 @@ final class AudioCaptureManager {
                 Self.logger.warning("Mic selected but buffer split found no mic buffers (tapCh=\(self.systemTapChannels)); mic stem will be empty")
             }
             if split > 0, let micBuf = downmix(abl, indices: 0..<split, frameCount: frameCount, format: mixFormat) {
-                handleAudioBuffer(micBuf, converter: micConverter, outputFormat: targetFormat, writer: micWriter)
+                _ = handleAudioBuffer(micBuf, converter: micConverter, outputFormat: targetFormat, writer: micWriter, liveSource: .mic, liveStart: liveStart)
             }
             if let sysBuf = downmix(abl, indices: split..<abl.count, frameCount: frameCount, format: mixFormat) {
-                handleAudioBuffer(sysBuf, converter: systemConverter, outputFormat: targetFormat, writer: systemWriter)
+                _ = handleAudioBuffer(sysBuf, converter: systemConverter, outputFormat: targetFormat, writer: systemWriter, liveSource: .system, liveStart: liveStart)
             }
         }
         return noErr
@@ -437,8 +446,10 @@ final class AudioCaptureManager {
         _ buffer: AVAudioPCMBuffer,
         converter: AVAudioConverter,
         outputFormat: AVAudioFormat,
-        writer: AudioFileWriter
-    ) {
+        writer: AudioFileWriter,
+        liveSource: LiveAudioSource? = nil,
+        liveStart: Double = 0
+    ) -> Int {
         let ratio = outputFormat.sampleRate / buffer.format.sampleRate
         let frameCapacity = AVAudioFrameCount(
             Double(buffer.frameLength) * ratio
@@ -446,7 +457,7 @@ final class AudioCaptureManager {
         guard let convertedBuffer = AVAudioPCMBuffer(
             pcmFormat: outputFormat,
             frameCapacity: frameCapacity
-        ) else { return }
+        ) else { return 0 }
 
         var error: NSError?
         var inputConsumed = false
@@ -465,10 +476,15 @@ final class AudioCaptureManager {
 
         if let error {
             Self.logger.error("Conversion error: \(error)")
-            return
+            return 0
         }
 
         writer.writeBuffer(convertedBuffer)
+        if let liveSource, let samples = convertedBuffer.floatChannelData?[0] {
+            _ = liveBuffer?.offer(samples: UnsafeBufferPointer(start: samples, count: Int(convertedBuffer.frameLength)),
+                                  source: liveSource, start: liveStart)
+        }
+        return Int(convertedBuffer.frameLength)
     }
 
     private func destroyTap() {
@@ -527,20 +543,41 @@ final class AudioCaptureManager {
         var asbd = AudioStreamBasicDescription()
         var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
 
+        // Brief poll: the aggregate can take a moment to report a valid format
+        // right after creation.
         var status: OSStatus = noErr
         for attempt in 1...5 {
             status = AudioObjectGetPropertyData(
                 deviceID, &address, 0, nil, &size, &asbd
             )
-            if status == noErr, asbd.mSampleRate > 0 { break }
+            if status == noErr, asbd.mSampleRate > 0, asbd.mChannelsPerFrame > 0 { break }
             if attempt < 5 { Thread.sleep(forTimeInterval: 0.05) }
         }
-        guard status == noErr, asbd.mSampleRate > 0 else {
-            logger.error("Failed to read device input format: OSStatus=\(status)")
+        guard status == noErr, asbd.mSampleRate > 0, asbd.mChannelsPerFrame > 0 else {
+            logger.error(
+                "Device input format not ready: OSStatus=\(status), rate=\(asbd.mSampleRate), ch=\(asbd.mChannelsPerFrame)"
+            )
+            if status == noErr { throw CaptureError.deviceNotProducingAudio }
             throw CaptureError.tapCreationFailed(status: status)
         }
-        guard let format = AVAudioFormat(streamDescription: &asbd) else {
-            logger.error("Device input ASBD could not be converted to AVAudioFormat")
+
+        // AVAudioFormat(streamDescription:) returns nil for any ASBD with more
+        // than 2 channels unless given an explicit layout. The aggregate's
+        // combined input is the stereo system tap plus the mono mic = 3 channels
+        // whenever mic capture is on, so the bare initializer always failed and
+        // recording never started. Callers only read .sampleRate from this, so a
+        // discrete in-order layout is sufficient.
+        let format: AVAudioFormat?
+        if asbd.mChannelsPerFrame > 2,
+           let layout = AVAudioChannelLayout(
+               layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | asbd.mChannelsPerFrame
+           ) {
+            format = AVAudioFormat(streamDescription: &asbd, channelLayout: layout)
+        } else {
+            format = AVAudioFormat(streamDescription: &asbd)
+        }
+        guard let format else {
+            logger.error("Device input ASBD not convertible to AVAudioFormat (ch=\(asbd.mChannelsPerFrame))")
             throw CaptureError.tapCreationFailed(status: -10)
         }
         return format

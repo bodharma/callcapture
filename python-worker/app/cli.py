@@ -259,7 +259,7 @@ def cli() -> None:
 
 def main() -> None:
     """Entry point that disables Click's standalone mode to preserve stdout."""
-    cli(standalone_mode=False)
+    sys.exit(cli(standalone_mode=False))
 
 
 @cli.command()
@@ -372,6 +372,35 @@ def prepare_emotion() -> None:
         return
     report_progress(job_id, 1.0, "done")
     report_result(JobResult(job_id=job_id, status="completed"))
+
+
+@cli.command(name="live")
+@click.option("--model", default="base", show_default=True)
+@click.option("--language", default="auto", show_default=True)
+@click.pass_context
+def live_cmd(ctx: click.Context, model: str, language: str) -> None:
+    """Transcribe local PCM chunks from stdin until stop or EOF."""
+    from app.transcribe.live import run_live
+
+    ctx.exit(run_live(click.get_text_stream("stdin"), click.get_text_stream("stdout"), model, language))
+
+
+@cli.command(name="prepare-live-model")
+@click.option("--model", default="base", show_default=True)
+@click.pass_context
+def prepare_live_model(ctx: click.Context, model: str) -> None:
+    """Explicitly download and validate a local speech model before recording."""
+    from app.transcribe.live import emit, model_logs_to_stderr, prepare_model
+
+    output = click.get_text_stream("stdout")
+    try:
+        with model_logs_to_stderr():
+            prepare_model(model)
+    except Exception as exc:
+        emit(output, {"type": "error", "message": str(exc)})
+        ctx.exit(1)
+        return
+    emit(output, {"type": "ready"})
 
 
 # Register the transcribe command with the expected CLI name

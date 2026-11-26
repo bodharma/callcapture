@@ -43,7 +43,7 @@ echo "version: $version_out"
 echo "===> --help (liveness: binary loaded, commands registered)"
 help_out="$("$BIN" --help)"
 echo "$help_out"
-for cmd in transcribe postprocess export prepare_emotion; do
+for cmd in transcribe postprocess export prepare_emotion live prepare-live-model; do
     if ! grep -q "$cmd" <<<"$help_out"; then
         echo "error: expected command '$cmd' missing from --help output" >&2
         exit 1
