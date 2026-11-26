@@ -48,6 +48,11 @@ SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 # behaviour it had before. This keeps BOTH paths correct: ad-hoc signs locally,
 # Developer ID gets the trusted timestamp notarization requires.
 TIMESTAMP_FLAG=(--timestamp=none)
+# Hardened runtime on the nested worker only for a real identity. It enforces
+# library validation, and ad-hoc signatures carry no Team ID, so an ad-hoc
+# hardened worker cannot load its own ad-hoc libpython ("mapping process and
+# mapped file (non-platform) have different Team IDs"). Notarization, the only
+# reason for the flag, requires a Developer ID anyway.
 if [[ "$SIGN_IDENTITY" != "-" ]]; then
     TIMESTAMP_FLAG=(--timestamp)
 fi
@@ -62,9 +67,13 @@ if [[ -d "$WORKER_DIR" ]]; then
     echo "===> signing nested worker Mach-O"
     find "$WORKER_DIR" -type f -print0 \
         | while IFS= read -r -d '' f; do
-            if file -b "$f" | grep -q "Mach-O"; then
+            if ! file -b "$f" | grep -q "Mach-O"; then
+                continue
+            elif [[ "$SIGN_IDENTITY" != "-" ]]; then
                 codesign --force --sign "$SIGN_IDENTITY" "${TIMESTAMP_FLAG[@]}" \
                     --options runtime "$f"
+            else
+                codesign --force --sign "$SIGN_IDENTITY" "${TIMESTAMP_FLAG[@]}" "$f"
             fi
         done
 fi
