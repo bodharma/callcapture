@@ -72,6 +72,14 @@ final class AppModel {
     @ObservationIgnored
     let localServer = LocalServer(backend: AppModelBackend())
 
+    /// Port the local server is bound to; nil until it is serving (or if it failed to start).
+    private(set) var localServerPort: Int?
+
+    @ObservationIgnored
+    private var archiveWindowController: WebWindowController?
+    @ObservationIgnored
+    private var livePanelController: LivePanelController?
+
     var state: AppState = .idle
     var lastError: String?
     var lastSessionTitle: String?
@@ -235,10 +243,34 @@ final class AppModel {
             do {
                 let port = try await server.start()
                 Self.logger.info("Local server listening on 127.0.0.1:\(port)")
+                await MainActor.run { self.localServerPort = port }
             } catch {
                 Self.logger.error("Local server failed to start: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Login URL for a local web UI path; nil while the server is not running.
+    func webLoginURL(path: String) -> URL? {
+        localServerPort == nil ? nil : localServer.loginURL(path: path)
+    }
+
+    @MainActor
+    func showArchiveWindow() {
+        let controller = archiveWindowController ?? WebWindowController(
+            loginURL: { [weak self] in self?.webLoginURL(path: $0) },
+            ownPort: { [weak self] in self?.localServerPort })
+        archiveWindowController = controller
+        controller.show(path: "/sessions")
+    }
+
+    @MainActor
+    func showLivePanel() {
+        let controller = livePanelController ?? LivePanelController(
+            loginURL: { [weak self] in self?.webLoginURL(path: $0) },
+            ownPort: { [weak self] in self?.localServerPort })
+        livePanelController = controller
+        controller.show()
     }
 
     /// Synchronously releases audio capture and any running worker process.

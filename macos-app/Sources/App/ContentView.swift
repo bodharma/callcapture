@@ -48,6 +48,7 @@ struct ContentView: View {
             lastSessionInfo
             Divider()
             sessionsButton
+            webHostButtons
             settingsButton
             diagnosticsButton
             Divider()
@@ -225,6 +226,39 @@ struct ContentView: View {
         } label: {
             Label("View Sessions", systemImage: "list.bullet.rectangle")
                 .font(.subheadline)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Entry points to the local web UI; disabled until the loopback server is bound.
+    @ViewBuilder
+    private var webHostButtons: some View {
+        let serverUp = appModel.localServerPort != nil
+        VStack(alignment: .leading, spacing: 6) {
+            webHostButton("Open archive", systemImage: "rectangle.on.rectangle") {
+                appModel.showArchiveWindow()
+            }
+            webHostButton("Open in browser", systemImage: "safari") {
+                if let url = appModel.webLoginURL(path: "/sessions") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            webHostButton("Open live panel", systemImage: "rectangle.bottomthird.inset.filled") {
+                appModel.showLivePanel()
+            }
+            if !serverUp {
+                Text("Local server isn't running.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .disabled(!serverUp)
+    }
+
+    private func webHostButton(
+        _ title: String, systemImage: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage).font(.subheadline)
         }
         .buttonStyle(.plain)
     }

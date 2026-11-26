@@ -102,16 +102,30 @@ final class LocalServer: Sendable {
     }
 
     func loginURL(path: String) -> URL {
+        Self.makeLoginURL(port: security.port, token: security.issueLoginToken(), next: path)
+    }
+
+    /// Pure URL construction for the single-use login hand-off; `next` is
+    /// percent-encoded by `URLComponents`.
+    static func makeLoginURL(port: Int, token: String, next: String) -> URL {
         var components = URLComponents()
         components.scheme = "http"
         components.host = "127.0.0.1"
-        components.port = security.port
+        components.port = port
         components.path = "/login"
-        components.queryItems = [
-            URLQueryItem(name: "token", value: security.issueLoginToken()),
-            URLQueryItem(name: "next", value: path),
+        components.percentEncodedQueryItems = [
+            URLQueryItem(name: "token", value: encodeQueryValue(token)),
+            URLQueryItem(name: "next", value: encodeQueryValue(next)),
         ]
         return components.url!
+    }
+
+    /// Encodes everything but unreserved characters and `/`, so `+`, `&`, `?`,
+    /// `=` and `#` in a value can never be misread as query syntax or a space.
+    private static func encodeQueryValue(_ value: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~/")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
     }
 }
 
