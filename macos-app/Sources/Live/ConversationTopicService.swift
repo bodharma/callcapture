@@ -85,6 +85,9 @@ struct ConversationTopicService: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await transport(request)
+        if response.statusCode == 404 {
+            throw ConversationMapError.invalid("Automatic notes model \(configuration.model) is not available from the provider (HTTP 404). Choose another model in Settings; transcript and manual notes remain available.")
+        }
         guard (200..<300).contains(response.statusCode) else { throw ConversationMapError.invalid("Automatic notes request failed (HTTP \(response.statusCode)). Transcript and manual notes remain available.") }
         guard data.count <= 512_000 else { throw ConversationMapError.invalid("Automatic notes response exceeded the size limit.") }
         struct Envelope: Decodable {
