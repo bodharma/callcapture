@@ -202,7 +202,86 @@ struct ConversationTopicServiceTests {
         model.end()
     }
 
-    private func start(_ model: LiveMeetingModel, directory: URL, speech: String = "en", notes: String = "uk") throws {
+    @Test("each request asks for usage accounting and records tokens and reported cost")
+    func usageRecorded() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fixture = TopicTransport(responses: [response(topics: [topic("work", "Робота", ["one"])], current: "work",
+                                                          usage: ["prompt_tokens": 1200, "completion_tokens": 300, "cost": 0.0042])])
+        let model = LiveMeetingModel(topicService: .init(transport: { try await fixture.send($0) }), coalescingDelay: .milliseconds(5))
+        try start(model, directory: directory)
+        model.ingest(turn("one", 1, "Перше"))
+        try await eventually { model.document.liveNotesUsage != nil }
+        #expect(model.document.liveNotesUsage == LiveNotesUsage(requests: 1, promptTokens: 1200, completionTokens: 300,
+                                                                reportedCostUSD: 0.0042, unpricedRequests: 0))
+        let body = try #require(await fixture.requests.first?.httpBody)
+        let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect((json["usage"] as? [String: Any])?["include"] as? Bool == true)
+        model.end()
+    }
+
+    @Test("a response without a reported cost counts as an unpriced request")
+    func unpricedCounted() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fixture = TopicTransport(responses: [response(topics: [topic("work", "Робота", ["one"])], current: "work",
+                                                          usage: ["prompt_tokens": 900, "completion_tokens": 100])])
+        let model = LiveMeetingModel(topicService: .init(transport: { try await fixture.send($0) }), coalescingDelay: .milliseconds(5))
+        try start(model, directory: directory)
+        model.ingest(turn("one", 1, "Перше"))
+        try await eventually { model.document.liveNotesUsage != nil }
+        #expect(model.document.liveNotesUsage?.unpricedRequests == 1)
+        #expect(model.document.liveNotesUsage?.reportedCostUSD == 0)
+        model.end()
+    }
+
+    @Test("live maps saved before usage tracking still load")
+    func oldDocumentLoads() throws {
+        var json = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(ConversationDocument())) as? [String: Any])
+        json.removeValue(forKey: "liveNotesUsage")
+        let decoded = try JSONDecoder().decode(ConversationDocument.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(decoded.liveNotesUsage == nil)
+    }
+
+    @Test("going offline pauses automatic notes with a clear message and no retry loop")
+    func offlinePausesWithoutRetry() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fixture = TopicTransport(responses: [], failure: URLError(.notConnectedToInternet))
+        let model = LiveMeetingModel(topicService: .init(transport: { try await fixture.send($0) }), coalescingDelay: .milliseconds(5))
+        try start(model, directory: directory)
+        model.ingest(turn("one", 1, "Перше"))
+        try await eventually { model.error != nil }
+        #expect(model.error == "Automatic notes paused: offline. Transcript and manual notes continue.")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await fixture.requestCount == 1)
+        #expect(model.document.turns.count == 1)
+        model.end()
+    }
+
+    @Test("a live model OpenRouter no longer lists is refused before any request")
+    func unlistedModelRefused() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fixture = TopicTransport(responses: [])
+        let model = LiveMeetingModel(topicService: .init(transport: { try await fixture.send($0) }), coalescingDelay: .milliseconds(5))
+        try start(model, directory: directory, listedModelIDs: ["anthropic/claude-haiku-5.5"])
+        #expect(model.error == "gone/model is no longer offered by OpenRouter. Choose another live notes model in Settings.")
+        model.ingest(turn("one", 1, "Перше"))
+        try await Task.sleep(for: .milliseconds(60))
+        #expect(await fixture.requestCount == 0)
+        model.end()
+    }
+
+    private func start(_ model: LiveMeetingModel, directory: URL, speech: String = "en", notes: String = "uk",
+                       listedModelIDs: Set<String>? = nil) throws {
+        if let listedModelIDs {
+            try model.begin(sessionID: "synthetic", title: "Synthetic", audioPath: directory.appendingPathComponent("meeting.wav").path,
+                            speechLanguage: speech, notesLanguage: notes,
+                            configuration: .init(enabled: true, baseURL: URL(string: "https://llm.invalid/v1")!, apiKey: "test-key",
+                                                 model: "gone/model", listedModelIDs: listedModelIDs))
+            return
+        }
         try model.begin(sessionID: "synthetic", title: "Synthetic", audioPath: directory.appendingPathComponent("meeting.wav").path, speechLanguage: speech, notesLanguage: notes, configuration: .init(enabled: true, baseURL: URL(string: "https://example.invalid/v1")!, apiKey: "ephemeral-key", model: "fixture-model"))
     }
 }
@@ -213,10 +292,14 @@ private actor TopicTransport {
     var active = 0
     var maximumConcurrent = 0
     let delay: Duration
+    let failure: URLError?
     var requestCount: Int { requests.count }
-    init(responses: [Data], delay: Duration = .zero) { self.responses = responses; self.delay = delay }
+    init(responses: [Data], delay: Duration = .zero, failure: URLError? = nil) {
+        self.responses = responses; self.delay = delay; self.failure = failure
+    }
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         requests.append(request)
+        if let failure { throw failure }
         active += 1
         maximumConcurrent = max(maximumConcurrent, active)
         defer { active -= 1 }
@@ -230,10 +313,13 @@ private func topic(_ id: String, _ title: String, _ turns: [String], parent: Str
     ["id": id, "title": title, "parent_id": parent as Any? ?? NSNull(), "summary": "Коротко", "turn_ids": turns, "memos": [["id": "\(id)-memo", "kind": "idea", "text": memoText, "turn_ids": turns]]]
 }
 
-private func response(topics: [[String: Any]], current: String, language: String = "uk", catchUp: [String: Any]? = nil) -> Data {
+private func response(topics: [[String: Any]], current: String, language: String = "uk", catchUp: [String: Any]? = nil,
+                      usage: [String: Any]? = nil) -> Data {
     let content: [String: Any] = ["schema_version": 1, "notes_language": language, "topics": topics, "current_topic_id": current, "catch_up": catchUp as Any? ?? NSNull()]
     let text = String(decoding: try! JSONSerialization.data(withJSONObject: content), as: UTF8.self)
-    return try! JSONSerialization.data(withJSONObject: ["choices": [["message": ["content": text]]]])
+    var envelope: [String: Any] = ["choices": [["message": ["content": text]]]]
+    if let usage { envelope["usage"] = usage }
+    return try! JSONSerialization.data(withJSONObject: envelope)
 }
 
 @MainActor private func eventually(_ condition: () async -> Bool) async throws {

@@ -3,6 +3,13 @@ import AppKit
 
 @available(macOS 14.2, *)
 struct LiveMeetingWorkspace: View {
+    static func usageLine(_ usage: LiveNotesUsage) -> String {
+        let requests = "\(usage.requests) request\(usage.requests == 1 ? "" : "s")"
+        if usage.unpricedRequests == usage.requests { return "Live notes: \(requests), cost not reported" }
+        let unpriced = usage.unpricedRequests > 0 ? " (\(usage.unpricedRequests) without reported cost)" : ""
+        return "Live notes so far: ≈ \(ModelPickerFormat.usd(usage.reportedCostUSD)) · \(requests)\(unpriced)"
+    }
+
     let model: LiveMeetingModel
     var processingStatus: String = "Saved live map"
     var microphoneEnabled: Bool = true
@@ -33,6 +40,9 @@ struct LiveMeetingWorkspace: View {
                         .font(.caption2).foregroundStyle(.secondary)
                     Text("Notes language: \(model.document.resolvedNotesLanguage ?? "awaiting speech detection")")
                         .font(.caption2).foregroundStyle(.secondary)
+                    if let usage = model.document.liveNotesUsage {
+                        Text(Self.usageLine(usage)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                    }
                     if model.document.notesLanguage == "auto" && model.document.resolvedNotesLanguage == nil {
                         Menu("Choose notes language") {
                             ForEach(["en", "uk", "pl", "de", "fr", "es"], id: \.self) { code in

@@ -20,6 +20,26 @@ struct LiveNotesConfiguration: Sendable {
     let baseURL: URL
     let apiKey: String
     let model: String
+    /// OpenRouter's current model IDs when known; nil skips the "still offered" check
+    /// (local servers, or no catalog loaded yet).
+    var listedModelIDs: Set<String>? = nil
+}
+
+/// Tokens and provider-reported cost of automatic live-notes requests in one meeting.
+struct LiveNotesUsage: Codable, Equatable, Sendable {
+    var requests = 0
+    var promptTokens = 0
+    var completionTokens = 0
+    var reportedCostUSD = 0.0
+    /// Requests whose response carried no cost figure.
+    var unpricedRequests = 0
+
+    func adding(_ other: LiveNotesUsage) -> LiveNotesUsage {
+        LiveNotesUsage(requests: requests + other.requests, promptTokens: promptTokens + other.promptTokens,
+                       completionTokens: completionTokens + other.completionTokens,
+                       reportedCostUSD: reportedCostUSD + other.reportedCostUSD,
+                       unpricedRequests: unpricedRequests + other.unpricedRequests)
+    }
 }
 
 struct LiveMemo: Codable, Identifiable, Sendable, Equatable {
@@ -68,6 +88,8 @@ struct ConversationDocument: Codable, Sendable, Equatable {
     var arrivalTurnIDs: [String] = []
     var mergedTopicIDs: [String: String] = [:]
     var mappedTurnIDs: [String] = []
+    /// Optional so live maps saved before usage tracking still decode.
+    var liveNotesUsage: LiveNotesUsage? = nil
 }
 
 @MainActor @Observable
@@ -398,6 +420,9 @@ final class LiveMeetingModel {
 
     private func configurationProblem(_ configuration: LiveNotesConfiguration) -> String? {
         if configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Automatic notes need a configured provider key. Transcript and manual notes remain available." }
+        if let listed = configuration.listedModelIDs, !listed.contains(configuration.model) {
+            return "\(configuration.model) is no longer offered by OpenRouter. Choose another live notes model in Settings."
+        }
         if configuration.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Automatic notes need an explicitly selected model. Transcript and manual notes remain available." }
         if !["https", "http"].contains(configuration.baseURL.scheme ?? "") || configuration.baseURL.host == nil || configuration.baseURL.user != nil || configuration.baseURL.password != nil || configuration.baseURL.query != nil || configuration.baseURL.fragment != nil { return "Automatic notes need a valid provider base URL without embedded credentials or query parameters." }
         return nil
@@ -425,7 +450,8 @@ final class LiveMeetingModel {
             let catchIDs = Set(catchUpRequestedIDs).isSubset(of: allowed) ? catchUpRequestedIDs : []
             status = "Updating automatic notes (\(document.resolvedNotesLanguage ?? ""))"
             do {
-                let update = try await topicService.analyze(document: document, turns: turns, catchUpIDs: catchIDs, configuration: configuration)
+                let update = try await topicService.analyze(document: document, turns: turns, catchUpIDs: catchIDs, configuration: configuration,
+                                                            onUsage: { [weak self] usage in await self?.recordUsage(usage, generation: token) })
                 guard !Task.isCancelled, token == generation else { return }
                 guard Set(pending).isSubset(of: Set(update.topics.flatMap(\.turnIDs))) else { throw ConversationMapError.invalid("Automatic notes omitted pending source evidence. The unprocessed turns remain available.") }
                 try apply(update)
@@ -444,6 +470,12 @@ final class LiveMeetingModel {
             }
         }
         if token == generation { analysisTask = nil }
+    }
+
+    /// Counted as soon as the provider answers, so charged-but-rejected responses count too.
+    private func recordUsage(_ usage: LiveNotesUsage, generation token: UUID) {
+        guard token == generation else { return }
+        document.liveNotesUsage = (document.liveNotesUsage ?? LiveNotesUsage()).adding(usage)
     }
 
     private func apply(_ update: ConversationTopicUpdate) throws {

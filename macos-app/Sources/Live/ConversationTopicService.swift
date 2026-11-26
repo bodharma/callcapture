@@ -46,6 +46,23 @@ enum ConversationMapError: LocalizedError {
 /// One OpenAI-compatible request at a time; the model owns pending evidence and coalescing.
 struct ConversationTopicService: Sendable {
     typealias Transport = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
+
+    private static let offlineCodes: Set<URLError.Code> = [
+        .notConnectedToInternet, .networkConnectionLost, .cannotFindHost,
+        .cannotConnectToHost, .timedOut, .dnsLookupFailed, .dataNotAllowed,
+    ]
+
+    /// One answered request; OpenRouter reports tokens and, with usage accounting, cost.
+    static func usage(in data: Data) -> LiveNotesUsage {
+        struct Envelope: Decodable {
+            struct Usage: Decodable { let prompt_tokens: Int?; let completion_tokens: Int?; let cost: Double? }
+            let usage: Usage?
+        }
+        let usage = (try? JSONDecoder().decode(Envelope.self, from: data))?.usage
+        return LiveNotesUsage(requests: 1, promptTokens: usage?.prompt_tokens ?? 0,
+                              completionTokens: usage?.completion_tokens ?? 0,
+                              reportedCostUSD: usage?.cost ?? 0, unpricedRequests: usage?.cost == nil ? 1 : 0)
+    }
     private let transport: Transport
 
     init(transport: @escaping Transport = { request in
@@ -54,7 +71,8 @@ struct ConversationTopicService: Sendable {
         return (data, response)
     }) { self.transport = transport }
 
-    func analyze(document: ConversationDocument, turns: [LiveTurn], catchUpIDs: [String], configuration: LiveNotesConfiguration) async throws -> ConversationTopicUpdate {
+    func analyze(document: ConversationDocument, turns: [LiveTurn], catchUpIDs: [String], configuration: LiveNotesConfiguration,
+                 onUsage: @Sendable (LiveNotesUsage) async -> Void = { _ in }) async throws -> ConversationTopicUpdate {
         guard let language = document.resolvedNotesLanguage else { throw ConversationMapError.invalid("Choose a notes language before generating notes.") }
         guard document.topics.count <= 200 else { throw ConversationMapError.invalid("Automatic notes paused: the map exceeds the 200-topic context limit. Transcript and manual notes remain available.") }
         let context: [String: Any] = [
@@ -75,7 +93,7 @@ struct ConversationTopicService: Sendable {
         Return ONLY a JSON object: {"schema_version":1,"notes_language":"\(language)","topics":[{"id":"stable-id","parent_id":null,"title":"short label","summary":"brief summary","turn_ids":["source-id"],"memos":[{"id":"stable-memo-id","kind":"idea|question|decision|action|note","text":"brief evidence-based note","turn_ids":["source-id"]}]}],"current_topic_id":"topic-id","catch_up":null}.
         Use existing topic/memo IDs on returning to the same topic; never resurrect merged IDs. New IDs must be unique. Keep existing branch order. Use only supplied turn IDs as evidence. Each topic/memo requires source IDs. Never invent facts, owners, dates, decisions or answered questions. Uncertain associations belong to the existing Discussion bucket. Do not rewrite manual/pinned content or change manual parent/title edits. Labels, summaries, memos and catch_up.text MUST use notes_language \(language), while transcript/manual text stays unchanged. Omit unchanged topics. Up to 30 topics and 30 memos/topic; titles <=160 characters, summaries <=4000, memos <=800. If catch_up_turn_ids is nonempty, return catch_up:{"text":"brief recap in \(language)","turn_ids":[all summarised IDs]}; otherwise null. Only summarise the requested catch-up evidence.
         """
-        let body: [String: Any] = ["model": configuration.model, "temperature": 0.2,
+        let body: [String: Any] = ["model": configuration.model, "temperature": 0.2, "usage": ["include": true],
                                    "response_format": ["type": "json_object"],
                                    "messages": [["role": "system", "content": instructions], ["role": "user", "content": String(decoding: contextData, as: UTF8.self)]]]
         var request = URLRequest(url: configuration.baseURL.appendingPathComponent("chat/completions"))
@@ -84,12 +102,19 @@ struct ConversationTopicService: Sendable {
         request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await transport(request)
+        let data: Data
+        let response: HTTPURLResponse
+        do {
+            (data, response) = try await transport(request)
+        } catch let error as URLError where Self.offlineCodes.contains(error.code) {
+            throw ConversationMapError.invalid("Automatic notes paused: offline. Transcript and manual notes continue.")
+        }
         if response.statusCode == 404 {
             throw ConversationMapError.invalid("Automatic notes model \(configuration.model) is not available from the provider (HTTP 404). Choose another model in Settings; transcript and manual notes remain available.")
         }
         guard (200..<300).contains(response.statusCode) else { throw ConversationMapError.invalid("Automatic notes request failed (HTTP \(response.statusCode)). Transcript and manual notes remain available.") }
         guard data.count <= 512_000 else { throw ConversationMapError.invalid("Automatic notes response exceeded the size limit.") }
+        await onUsage(Self.usage(in: data))
         struct Envelope: Decodable {
             struct Choice: Decodable { struct Message: Decodable { let content: String }; let message: Message }
             let choices: [Choice]

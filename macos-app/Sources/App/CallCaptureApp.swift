@@ -457,7 +457,8 @@ final class AppModel {
                     speechLanguage: selectedSpeechLanguage.rawValue,
                     notesLanguage: selectedNotesLanguage.rawValue,
                     configuration: LiveNotesConfiguration(enabled: automaticLiveMemos && configuredURL != nil, baseURL: url,
-                                                          apiKey: automaticLiveMemos ? key : "", model: settingsManager.model(for: .live)))
+                                                          apiKey: automaticLiveMemos ? key : "", model: settingsManager.model(for: .live),
+                                                          listedModelIDs: provider == .openrouter ? catalogSnapshot.map { Set($0.models.map(\.id)) } : nil))
                 if automaticLiveMemos && configuredURL == nil {
                     liveMeeting.model.markGap("Invalid memo provider URL; local speech and manual notes continue. Fix the provider in Settings before the next meeting.")
                 }
