@@ -61,9 +61,25 @@ describe("SessionDetail", () => {
     expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
+  it("folds the full note by default, below the structured lists", async () => {
+    api();
+    renderAt("/sessions/S1");
+    const toggle = await screen.findByRole("button", { name: "Full note" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("link", { name: "the plan" })).toBeNull();
+    const todo = screen.getByRole("region", { name: "To do" });
+    expect(todo.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(await screen.findByRole("link", { name: "the plan" })).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("link", { name: "the plan" })).toBeNull();
+  });
+
   it("renders the note as Markdown without raw HTML or remote images", async () => {
     api();
     const { container } = renderAt("/sessions/S1");
+    fireEvent.click(await screen.findByRole("button", { name: "Full note" }));
     const link = await screen.findByRole("link", { name: "the plan" });
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");

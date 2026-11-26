@@ -68,9 +68,10 @@ export function Tape({ src, duration, peaks, markers, recording }: TapeProps) {
       peaks: [peaks],
       duration: known,
       height: 48,
-      waveColor: token("--ash", "#93a08f"),
-      progressColor: token("--fg", "#dfe8da"),
-      cursorColor: token("--rust", "#e0805f"),
+      // As on the canvas: dim unplayed bars, ash played bars, a pale cursor.
+      waveColor: token("--line-strong", "#3a4740"),
+      progressColor: token("--ash", "#93a08f"),
+      cursorColor: token("--fg", "#dfe8da"),
       cursorWidth: 2,
       barWidth: 3,
       barGap: 2,

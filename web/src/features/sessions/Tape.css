@@ -63,7 +63,7 @@
 }
 .tape-marker--note,
 .tape-glyph--note {
-  color: var(--ash);
+  color: var(--rust);
 }
 .tape-marker::before,
 .tape-glyph {

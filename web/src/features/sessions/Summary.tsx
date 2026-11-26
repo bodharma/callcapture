@@ -1,11 +1,11 @@
-import { lazy, Suspense, useId, type ReactNode } from "react";
+import { lazy, Suspense, useId, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import type { AnalysisDTO, MarkerKind, SpeakerDTO, SpeakerStats, TapeMarker } from "../../api/types";
 import { timecode } from "../../lib/format";
 import { usePlayer } from "./player";
 import "./Summary.css";
 
-// The Markdown renderer is the largest dependency; load it only when a note is shown.
+// The Markdown renderer is the largest dependency; load it only when the note is opened.
 const Note = lazy(() => import("./Note").then((module) => ({ default: module.Note })));
 
 interface SummaryProps {
@@ -17,8 +17,10 @@ interface SummaryProps {
 }
 
 /**
- * The worker's untimed insights plus the vault note. Decisions, questions and
- * your notes are timed only where the live map recorded them (tape markers).
+ * The structured lists first (summary, decisions, action items, open questions,
+ * then your notes, key points and takeaways), and the full vault note below in
+ * a disclosure that starts closed. Decisions, questions and your notes are
+ * timed only where the live map recorded them (tape markers).
  */
 export function Summary({ status, analysis, note, markers, speakers }: SummaryProps) {
   const insights = analysis?.insights;
@@ -37,13 +39,7 @@ export function Summary({ status, analysis, note, markers, speakers }: SummaryPr
         <TimedList title="Your notes" kind="note" markers={timed("note")} />
         <PlainList title="Key points" items={insights?.keyPoints} />
         <PlainList title="Takeaways" items={insights?.takeaways} />
-        {note && (
-          <Block title="Note">
-            <Suspense fallback={<p className="empty">Loading the note…</p>}>
-              <Note markdown={note} />
-            </Suspense>
-          </Block>
-        )}
+        {note && <FullNote markdown={note} />}
       </div>
       {analysis && analysis.speakers.length > 0 && (
         <WhoSpoke stats={analysis.speakers} speakers={speakers} />
@@ -67,6 +63,34 @@ function Block({ title, children }: { title: string; children: ReactNode }) {
         {title}
       </h2>
       {children}
+    </section>
+  );
+}
+
+/** The vault note, which repeats much of the lists above: closed until asked for. */
+function FullNote({ markdown }: { markdown: string }) {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  return (
+    <section className="block">
+      <h2 className="block-title">
+        <button
+          type="button"
+          className="disclosure"
+          aria-expanded={open}
+          aria-controls={panelId}
+          onClick={() => setOpen((value) => !value)}
+        >
+          Full note
+        </button>
+      </h2>
+      <div id={panelId} hidden={!open}>
+        {open && (
+          <Suspense fallback={<p className="empty">Loading the note…</p>}>
+            <Note markdown={markdown} />
+          </Suspense>
+        )}
+      </div>
     </section>
   );
 }

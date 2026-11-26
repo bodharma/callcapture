@@ -60,7 +60,7 @@
   color: var(--amber);
 }
 .timed-at--note {
-  color: var(--ash);
+  color: var(--rust);
 }
 .plain {
   display: flex;
@@ -76,11 +76,31 @@
   color: var(--ash);
 }
 
-.note-wrap {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
+.disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.disclosure::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid var(--ash);
+  transition: transform 0.12s;
+}
+.disclosure[aria-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+.disclosure:hover::before {
+  border-left-color: var(--rust);
 }
 .note {
   max-width: 72ch;
@@ -90,10 +110,6 @@
   line-height: 1.6;
   color: var(--fg-soft);
   overflow-wrap: anywhere;
-}
-.note--folded {
-  max-height: 360px;
-  overflow: hidden;
 }
 .note h1,
 .note h2,

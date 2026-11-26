@@ -57,6 +57,14 @@ describe("Tape", () => {
     expect(create.mock.calls[0]).not.toHaveProperty("0.url");
   });
 
+  it("draws the wave in the canvas colours: dim unplayed, ash played, fg cursor", () => {
+    renderTape(false);
+    // jsdom loads no stylesheet, so the token fallbacks (the canvas hex values) are used.
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ waveColor: "#3a4740", progressColor: "#93a08f", cursorColor: "#dfe8da" }),
+    );
+  });
+
   it("disables playback with a caption while recording", () => {
     renderTape(true);
     expect((screen.getByRole("button", { name: "Play" }) as HTMLButtonElement).disabled).toBe(true);

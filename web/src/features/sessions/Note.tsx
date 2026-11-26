@@ -1,9 +1,5 @@
-import { useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-
-/** Notes longer than this open folded, with a button to show the rest. */
-const FOLD_AT = 1_500;
 
 const isExternal = (href: string | undefined): boolean => !!href && /^(https?:|mailto:)/i.test(href);
 
@@ -52,28 +48,11 @@ export function noteBody(markdown: string): string {
 }
 
 export function Note({ markdown }: { markdown: string }) {
-  const body = noteBody(markdown);
-  const long = body.length > FOLD_AT;
-  const [open, setOpen] = useState(false);
-
   return (
-    <div className="note-wrap">
-      <div className={long && !open ? "note note--folded" : "note"} id="session-note">
-        <Markdown remarkPlugins={[remarkGfm]} components={components}>
-          {body}
-        </Markdown>
-      </div>
-      {long && (
-        <button
-          type="button"
-          className="btn btn--small btn--quiet"
-          aria-expanded={open}
-          aria-controls="session-note"
-          onClick={() => setOpen((value) => !value)}
-        >
-          {open ? "Show less" : "Show the whole note"}
-        </button>
-      )}
+    <div className="note">
+      <Markdown remarkPlugins={[remarkGfm]} components={components}>
+        {noteBody(markdown)}
+      </Markdown>
     </div>
   );
 }
