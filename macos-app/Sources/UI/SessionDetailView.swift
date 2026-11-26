@@ -445,13 +445,8 @@ struct SessionDetailView: View {
     }
 
     private func exportFile(extension ext: String) {
-        // The worker writes a markdown note and a JSON transcript; plain text
-        // export reuses the markdown content.
-        let sourcePath: String? = switch ext {
-        case "json": current.transcriptRawPath
-        default: current.transcriptMarkdownPath
-        }
-        guard let source = sourcePath,
+        let format = SessionExport.Format(rawValue: ext) ?? .md
+        guard let source = SessionExport.sourcePath(for: format, session: current),
               FileManager.default.fileExists(atPath: source) else {
             saveMessage = nil
             transcriptionError = "Nothing to export yet — transcribe first."
@@ -460,7 +455,7 @@ struct SessionDetailView: View {
 
         let data: Data
         do {
-            data = try exportData(from: source, ext: ext)
+            data = try SessionExport.data(from: source, format: format, names: speakerNames)
         } catch {
             transcriptionError = "Export failed: \(error.localizedDescription)"
             return
@@ -479,18 +474,6 @@ struct SessionDetailView: View {
         }
     }
 
-    /// Export contents with the session's speaker names applied.
-    private func exportData(from path: String, ext: String) throws -> Data {
-        // No names: export the worker's bytes unchanged (keeps nulls and any newer fields).
-        if speakerNames.isEmpty { return try Data(contentsOf: URL(fileURLWithPath: path)) }
-        if ext == "json" {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
-            return try encoder.encode(speakerNames.applied(to: TranscriptDocument.load(path: path)))
-        }
-        return Data(speakerNames.apply(to: try String(contentsOfFile: path, encoding: .utf8)).utf8)
-    }
-
     /// Copies the markdown note into the configured Obsidian vault (or the
     /// output directory if no vault is set), creating the dated subfolder.
     private func saveToConfiguredDirectory() {
@@ -504,52 +487,23 @@ struct SessionDetailView: View {
         }
 
         let settings = appModel.settingsManager
-        let vault = settings.obsidianExportDirectory
-        let baseDir: String
-        let subfolder: String
-        if !vault.isEmpty {
-            baseDir = vault
-            subfolder = resolvedFolderPattern(
-                settings.obsidianFolderPattern,
-                date: current.startedAt
-            )
-        } else {
-            baseDir = settings.outputDirectory
-            subfolder = "exports"
-        }
-
-        let destDir = URL(fileURLWithPath: baseDir)
-            .appendingPathComponent(subfolder, isDirectory: true)
+        let destDir = SessionExport.vaultDirectory(
+            startedAt: current.startedAt,
+            vault: settings.obsidianExportDirectory,
+            folderPattern: settings.obsidianFolderPattern,
+            outputDirectory: settings.outputDirectory
+        )
 
         do {
-            let note = speakerNames.apply(to: try String(contentsOfFile: mdPath, encoding: .utf8))
-            let destURL = try SessionNoteExport.write(Data(note.utf8), directory: destDir,
-                                                      title: current.title, sessionID: current.id)
+            let destURL = try SessionExport.saveNote(markdownPath: mdPath, names: speakerNames,
+                                                     directory: destDir, title: current.title,
+                                                     sessionID: current.id)
             saveMessage = "Saved to \(destURL.path)"
             Self.logger.info("Saved note to \(destURL.path)")
         } catch {
             transcriptionError = "Save failed: \(error.localizedDescription)"
             Self.logger.error("Save to vault failed: \(error)")
         }
-    }
-
-    /// Expands date tokens in an Obsidian folder pattern.
-    private func resolvedFolderPattern(_ pattern: String, date: Date) -> String {
-        let formatter = DateFormatter()
-        let replacements: [(String, String)] = [
-            ("{YYYY-MM}", "yyyy-MM"),
-            ("{YYYY}", "yyyy"),
-            ("{MM}", "MM"),
-            ("{DD}", "dd")
-        ]
-        var result = pattern
-        for (token, fmt) in replacements where result.contains(token) {
-            formatter.dateFormat = fmt
-            result = result.replacingOccurrences(
-                of: token, with: formatter.string(from: date)
-            )
-        }
-        return result
     }
 
     private func safeFileName(_ name: String) -> String {
