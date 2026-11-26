@@ -1,13 +1,9 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { expect, it, vi } from "vitest";
 import { App } from "./App";
+import { mockApi } from "./test/api";
 
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-});
-
-it("shows the sign-in-again screen when the probe is unauthorized", async () => {
+it("shows the sign-in-again screen when the server answers 401", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 401 })));
   render(<App />);
   expect(
@@ -15,8 +11,10 @@ it("shows the sign-in-again screen when the probe is unauthorized", async () => 
   ).toBeTruthy();
 });
 
-it("renders the shell when signed in", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => new Response('{"ok":true}', { status: 200 })));
+it("opens the sessions archive when signed in", async () => {
+  mockApi({ "/api/system": { online: true, recording: false, version: "1.0" }, "/api/sessions": [] });
   render(<App />);
   expect(await screen.findByText("CallCapture")).toBeTruthy();
+  expect(await screen.findByText("Nothing recorded yet. Record a call from the menu bar.")).toBeTruthy();
+  expect(window.location.pathname).toBe("/sessions");
 });

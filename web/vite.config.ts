@@ -37,6 +37,6 @@ export default defineConfig(({ command }) => {
   return {
     plugins: [react()],
     server: proxy ? { proxy: { "/api": proxy, "/login": proxy } } : {},
-    test: { environment: "jsdom" },
+    test: { environment: "jsdom", setupFiles: ["./src/test/setup.ts"] },
   };
 });

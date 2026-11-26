@@ -1,0 +1,150 @@
+/* Shared controls and utilities. Values follow the canvas boards. */
+
+:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+.btn {
+  height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 0.12s,
+    border-color 0.12s,
+    color 0.12s;
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--ash);
+}
+.btn:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.btn--primary {
+  border: none;
+  background: var(--fg);
+  color: var(--void);
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--highlight);
+}
+.btn--small {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+.btn--quiet {
+  border-color: transparent;
+  color: var(--ash);
+}
+.btn--quiet:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  color: var(--fg);
+}
+.btn--danger {
+  border-color: transparent;
+  color: var(--rust);
+}
+.btn--danger:hover:not(:disabled) {
+  border-color: var(--rust);
+}
+.btn--danger-solid {
+  border: none;
+  background: var(--rust);
+  color: var(--void);
+}
+.btn--danger-solid:hover:not(:disabled) {
+  background: var(--rust-hover);
+}
+
+.field {
+  height: 30px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--fg);
+  font-family: var(--body);
+  font-size: 13px;
+}
+
+.notice {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--line-strong);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-soft);
+}
+.notice--warn {
+  border-left-color: var(--amber);
+  color: var(--amber);
+}
+.notice--ok {
+  border-left-color: var(--signal);
+  color: var(--fg-soft);
+}
+.notice--live {
+  border-left-color: var(--signal);
+  color: var(--signal);
+}
+
+.empty {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ash);
+}
+
+.not-found {
+  padding: 48px 30px;
+}
+.not-found h1 {
+  margin: 0 0 10px;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 46px;
+  line-height: 0.95;
+}
+.not-found p {
+  margin: 0 0 16px;
+  color: var(--ash);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

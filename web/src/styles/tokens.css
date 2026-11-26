@@ -9,6 +9,16 @@
   --rust: #e0805f;
   --amber: #e2b45a;
 
+  /* Secondary shades used by the canvas boards. */
+  --panel-raised: #1c231e;
+  --tape: #121714;
+  --line-faint: #232b25;
+  --fg-soft: #c7d1c3;
+  --fg-mid: #b9c4b5;
+  --highlight: #f2e9e1;
+  --meter-off: #26302a;
+  --rust-hover: #f0a184;
+
   --display: "Barlow Condensed", sans-serif;
   --body: "Instrument Sans", -apple-system, system-ui, sans-serif;
   --mono: "IBM Plex Mono", monospace;
@@ -39,5 +49,5 @@ a {
   color: var(--rust);
 }
 a:hover {
-  color: #f0a184;
+  color: var(--rust-hover);
 }

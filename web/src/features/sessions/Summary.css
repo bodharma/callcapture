@@ -1,0 +1,189 @@
+/* Summary tab: insight lists, the vault note and "Who spoke" (Sessions canvas). */
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px;
+}
+.summary-main {
+  flex: 999 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.summary-lead {
+  margin: 0;
+  max-width: 64ch;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.block-title {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 21px;
+}
+.timed {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 6px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.timed li {
+  display: contents;
+}
+.timed-at {
+  justify-self: start;
+  padding: 2px 0 0;
+  border: none;
+  background: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.timed-at--decision {
+  color: var(--signal);
+}
+.timed-at--question {
+  color: var(--amber);
+}
+.timed-at--note {
+  color: var(--ash);
+}
+.plain {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  max-width: 70ch;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.plain li::marker {
+  color: var(--ash);
+}
+
+.note-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.note {
+  max-width: 72ch;
+  padding-left: 16px;
+  border-left: 1px solid var(--line);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg-soft);
+  overflow-wrap: anywhere;
+}
+.note--folded {
+  max-height: 360px;
+  overflow: hidden;
+}
+.note h1,
+.note h2,
+.note h3 {
+  margin: 1.1em 0 0.35em;
+  font-family: var(--display);
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--fg);
+}
+.note h1 {
+  font-size: 19px;
+}
+.note h2 {
+  font-size: 17px;
+}
+.note h3 {
+  font-size: 15px;
+}
+.note > :first-child {
+  margin-top: 0;
+}
+.note p,
+.note ul,
+.note ol {
+  margin: 0 0 0.8em;
+}
+.note li.task-list-item {
+  list-style: disc;
+}
+.note code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ash);
+}
+.note table {
+  border-collapse: collapse;
+  margin: 0 0 1em;
+  font-size: 13px;
+}
+.note th,
+.note td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.note hr {
+  border: none;
+  border-top: 1px solid var(--line);
+}
+.note-image::before {
+  content: "Image: ";
+  color: var(--ash);
+}
+
+.who {
+  flex: 1 1 250px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.who-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.who-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.who-share {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ash);
+}
+.meter {
+  display: flex;
+  gap: 2px;
+}
+.meter-seg {
+  flex: 1;
+  height: 8px;
+  background: var(--meter-off);
+}
+.meter-seg--on {
+  background: var(--fg);
+}
+.who-name {
+  font-size: 12.5px;
+}
+
