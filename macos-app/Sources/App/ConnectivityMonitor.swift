@@ -7,7 +7,7 @@ import Observation
 @MainActor
 @Observable
 final class ConnectivityMonitor {
-    static let offlineReason = "Offline — this needs an internet connection."
+    nonisolated static let offlineReason = "Offline — this needs an internet connection."
 
     private(set) var isOnline = true
     @ObservationIgnored private let monitor: NWPathMonitor?
