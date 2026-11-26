@@ -55,3 +55,4 @@ CallCapture-*.zip
 *.key
 p12_password.txt
 web/node_modules/
+web/.vitest/
