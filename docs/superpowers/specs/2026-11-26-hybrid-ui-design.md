@@ -1,7 +1,7 @@
 # Hybrid UI and signal-room redesign
 
-Date: 2026-11-26. Status: approach chosen by the user ("hybrid"); builder-checked; design awaiting
-approval (stack choice pending the user's confirmation). First of three projects; Topic map (graph) and Live context (fact cards)
+Date: 2026-11-26. Status: approach chosen by the user ("hybrid"); builder-checked; design
+approved; stack (Hummingbird 2 + React) confirmed explicitly by the user on 2026-11-26. First of three projects; Topic map (graph) and Live context (fact cards)
 follow as separate specs on top of this foundation.
 
 ## Intent
@@ -88,11 +88,17 @@ menu bar, without maintaining two interfaces.
   CI and the release workflow move from Xcode 16 (Swift 6.0) to Xcode 26 (local
   toolchain is already Swift 6.2.1). Fallback if the user prefers minimal
   dependencies and no CI change: FlyingFox 0.27 (tools 6.0, pre-1.0, one maintainer).
-- **Frontend: React + Vite + TypeScript** (recommended over the first draft's
-  Svelte: the user's own work apps, ephra-web and ciba-admin-frontend, use React 18
-  + Vite + TS, so they can read and change it; React Flow is available for the
-  later topic graph). Built to static files bundled in the app; in dev, Vite's dev
-  server proxies the API to the running app.
+- **Frontend: React + Vite + TypeScript** (chosen by the user). The deciding
+  criterion is the ecosystem for graphs, Markdown and canvas-style work: graph
+  libraries are equal (React Flow / Svelte Flow, plus framework-agnostic Sigma,
+  Cytoscape, force-graph), but Markdown editors and canvases — tldraw, Excalidraw,
+  BlockNote, MDXEditor — are React-only, and Tiptap's first-class bindings are
+  React/Vue. Built to static files bundled in the app; in dev, Vite's dev server
+  proxies the API to the running app.
+- **Server confirmed: Hummingbird 2** (user's choice after comparing Hummingbird,
+  Vapor 4, FlyingFox and an out-of-process Python/Node server): the server lives
+  where the data lives (Swift), with SSE/WebSocket, streaming and socket-free tests;
+  costs are the Xcode 26 CI toolchain and a two-person core team.
 - **Security model:** bind `127.0.0.1` on a free port chosen at launch; every
   request needs a session cookie (HttpOnly, SameSite=Strict) obtained by exchanging
   a single-use random token passed in the URL the app opens; reject requests whose
