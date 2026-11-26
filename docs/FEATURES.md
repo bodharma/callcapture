@@ -48,6 +48,10 @@ credentials rather than wait for access to the user's live Keychain.
 
 ## 2. Make every recording easy to check
 
+Partly implemented locally on branch feat/session-review (see below): readable
+transcript, linked playback with speed, search, rename speakers. Waveform, merge
+speakers and capture health remain open.
+
 | Proposed change | Why it matters | Completion check |
 | --- | --- | --- |
 | Readable speaker-labelled transcript and rendered Markdown | The session screen should be useful without opening raw files | The full recording is readable and selectable inside the app, with no 1,000-character preview limit |
@@ -88,7 +92,8 @@ credentials rather than wait for access to the user's live Keychain.
 
 ## Implemented locally, unreleased (2026-11-26, branch feat/smart-audio-defaults)
 
-Uncommitted, unpublished; nothing below is in a released build.
+Committed on branch feat/smart-audio-defaults (5 commits, not yet pushed or released);
+nothing below is in a released build.
 
 **Live conversation map (local).** Mic ("You") and system ("Remote audio") PCM is
 offered to a bounded buffer (24 s, never blocks capture) and sent to a persistent
@@ -130,6 +135,41 @@ then `packaging/smoke_test.sh <tmp>/dist/call-capture-worker/call-capture-worker
 workspace and history sheet, provider (cloud/LLM) note quality and cost, sustained load,
 Ukrainian/mixed quality at scale, a published release/cask containing local Whisper.
 Auto/mixed language is marked experimental in the UI. No superiority claim is made.
+
+## Implemented locally, unreleased (2026-11-26, branch feat/session-review)
+
+Built on the five feat/smart-audio-defaults commits; unreleased. Plan:
+[session review](superpowers/plans/2026-11-26-session-review.md).
+
+- **Full transcript with playback.** The detail view shows every transcript line (no
+  1,000-character preview) with speaker and timestamp; clicking a timestamp seeks the
+  mixed recording and plays; speed 0.75-2x; the current line is highlighted. Playback is
+  paused and blocked from just before capture starts until capture has stopped (it stays
+  blocked after a failed stop), because the system tap captures every process, including ours.
+  The note renders in full (inline Markdown).
+- **Rename speakers.** Click a speaker label to name it. Names live in
+  `<audio>_speakers.json`, keyed by the worker's label. Names follow the label, not the
+  voice: Re-process normally reproduces the same labels, but a different engine or diarizer
+  can renumber speakers, so re-check names after switching. Applied
+  to the transcript, insights, search and every export (Save to Vault, Markdown, text,
+  JSON). `Speaker …` labels are replaced as whole labels anywhere; `You` only in speaker
+  positions, so prose like "You should" is untouched. Deleted with the session.
+- **Search everything.** The sidebar search covers every session (not only the 50 recent):
+  titles, dates, transcript lines (with speaker names) and note lines, case- and
+  diacritic-insensitive. Results show an excerpt and time; opening one positions the player
+  at that line without autoplay. Linear scan, no index.
+- **Export fix.** Exporting over an existing file chosen in the save panel now replaces it
+  atomically (previously the copy failed when the file existed).
+
+**Receipts.** Swift: 123 tests / 31 suites passed (new: transcript decoding/lookup, CRLF,
+speaker-name replacement and persistence, search incl. Cyrillic, caps, damaged files, dates).
+Python: 239 passed. Independent code review: one medium finding (playback could bleed
+into a starting recording, since app state flips only after capture starts) and five low
+ones (search spinner race, detail rebuild on same-session hit, player reload, timer frozen
+while scrolling, lossy JSON export without renames); all fixed. The playback block has no
+automated test.
+**Not verified:** the GUI, actual playback/seek/speed, search UX and focus scrolling were not
+exercised (no app launch). Not checked against real recordings.
 
 ## Reference releases used for prioritisation
 

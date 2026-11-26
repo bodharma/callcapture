@@ -9,10 +9,14 @@ product priority: live transcription and conversation/topic navigation.
 
 ## Features
 
+### Session review (backlog group 2)
+- **Status:** transcript + click-to-seek playback, rename speakers and search across all sessions implemented on branch feat/session-review (built on the commits below); GUI not exercised. Details: [FEATURES.md](FEATURES.md#implemented-locally-unreleased-2026-11-26-branch-featsession-review).
+- **Open in this group:** waveform, merge speakers, capture health/interruption recovery (touches `Capture/`; wait for the real-capture check).
+
 ### Live conversation navigation (main product priority)
-- **Status:** implemented locally and unreleased on branch feat/smart-audio-defaults (uncommitted). Exact behaviour, test counts and limits: [FEATURES.md](FEATURES.md#implemented-locally-unreleased-2026-11-26-branch-featsmart-audio-defaults).
+- **Status:** implemented locally and unreleased on branch feat/smart-audio-defaults (5 commits, not pushed). Exact behaviour, test counts and limits: [FEATURES.md](FEATURES.md#implemented-locally-unreleased-2026-11-26-branch-featsmart-audio-defaults).
 - **Design:** [Live conversation map](superpowers/specs/2026-11-26-live-conversation-map-design.md).
-- **Remaining before release:** user-run GUI/real-capture check (mic + system, history sheet, notes-language menu), provider note quality/cost check, bilingual quality evaluation, frozen release build/notarization containing pywhispercpp, commit/review of this change. Reconcile bookmarks during final processing is not implemented.
+- **Remaining before release:** user-run GUI/real-capture check (mic + system, history sheet, notes-language menu), provider note quality/cost check, bilingual quality evaluation, frozen release build/notarization containing pywhispercpp. Live audio admission still allocates on the real-time IO thread (`LiveAudioBuffer.offer`); replace with a preallocated ring before dropping the Experimental label. Reconcile bookmarks during final processing is not implemented.
 
 ## Bugs / cleanups
 
