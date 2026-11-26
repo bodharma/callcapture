@@ -40,6 +40,11 @@ button {
     border-color 0.12s,
     color 0.12s;
 }
+a.btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
 .btn:hover:not(:disabled) {
   border-color: var(--ash);
 }

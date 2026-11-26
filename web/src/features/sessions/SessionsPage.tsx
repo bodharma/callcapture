@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Outlet } from "react-router";
+import { Link, Outlet } from "react-router";
 import { useRefreshOnRecordingChange, useSessions, useSystem } from "./api";
 import { SessionList } from "./SessionList";
 import "./sessions.css";
@@ -64,6 +64,9 @@ export function SessionsPage() {
         />
         <span className="topbar-gap" />
         <SystemState />
+        <Link className="btn btn--quiet btn--small" to="/settings">
+          Settings
+        </Link>
       </header>
       <div className="archive-body">
         <SessionList query={debounced} />
