@@ -4,6 +4,7 @@ import { useRefreshCatalog, useSaveSetting } from "./api";
 import { OfflineReason } from "./controls";
 import { DEFAULT_SORT, perHour, scoreSegments, toggleSort, visibleModels, type SortColumn } from "./modelSort";
 import type { CatalogDTO, CatalogModel } from "./types";
+import "./ModelTable.css";
 
 type Role = "live" | "final";
 
