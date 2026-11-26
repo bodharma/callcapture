@@ -34,6 +34,8 @@ func makeRouter(
             body: .init(byteBuffer: .init(string: #"{"ok":true}"#))
         )
     }
+    addSystemRoutes(to: router, backend: backend)
+    addSessionsRoutes(to: router, backend: backend)
     addStaticRoutes(to: router, webDirectory: webDirectory)
     return router
 }

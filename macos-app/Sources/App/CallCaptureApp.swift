@@ -70,7 +70,7 @@ final class AppModel {
 
     /// Loopback HTTP server behind the local web UI.
     @ObservationIgnored
-    let localServer = LocalServer(backend: AppModelBackend())
+    let localServer: LocalServer
 
     /// Port the local server is bound to; nil until it is serving (or if it failed to start).
     private(set) var localServerPort: Int?
@@ -138,10 +138,13 @@ final class AppModel {
     ///
     /// - Parameter database: The GRDB-backed application database.
     init(database: AppDatabase) {
+        let serverBackend = AppModelBackend()
+        self.localServer = LocalServer(backend: serverBackend)
         self.sessionManager = SessionManager(database: database)
         self.settingsManager = SettingsManager(database: database)
         self.catalogSnapshot = modelCatalog.cached()
         AppModel.shared = self
+        serverBackend.attach(self)
         startLocalServer()
         Task { @MainActor [weak self] in await self?.refreshModelCatalogIfUseful() }
         observeAudioDevices()

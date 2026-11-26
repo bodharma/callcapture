@@ -333,7 +333,8 @@ final class SessionManager {
     /// Permanently removes a session and every on-disk artefact tied to it.
     ///
     /// Removes the row, the audio file (plus `_mic.wav` / `_system.wav` stems
-    /// when present), the diarization sidecars, and the transcript / note /
+    /// when present), the diarization, live-map, speaker-name and waveform-peak
+    /// sidecars, and the transcript / note /
     /// analysis files tracked in the row. Best-effort: a missing file is not
     /// an error. The in-memory `recentSessions` list is also pruned so the UI
     /// updates immediately.
@@ -363,6 +364,7 @@ final class SessionManager {
                     "_system_diarization.json",
                     "_live.json",
                     "_speakers.json",
+                    "_peaks.json",
                 ]
                 for suffix in siblings {
                     try? FileManager.default.removeItem(atPath: baseNoExt + suffix)
