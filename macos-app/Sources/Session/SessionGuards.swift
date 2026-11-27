@@ -38,6 +38,13 @@ enum DeletePolicy {
     }
 }
 
+/// Reasons Re-process and Regenerate AI notes share. One source, so the web page can
+/// fold them into a single line by comparing the strings.
+enum SessionBlockReason {
+    static let stopRecording = "Stop the recording before processing a session."
+    static let anotherRun = "Another session is being processed. Try again when it finishes."
+}
+
 extension ReprocessPolicy {
     /// Why Transcribe / Re-process / Retry can't run now, in the app's words; nil when it can.
     /// Checked in this order: the session's status, a recording, another run, the network.
@@ -49,10 +56,10 @@ extension ReprocessPolicy {
         // stops, that would leave the menu unable to stop the capture (see the Task 5
         // report, pre-review fix #5).
         guard activity.state != .recording, !activity.playbackBlocked, activity.transition == nil else {
-            return "Stop the recording before processing a session."
+            return SessionBlockReason.stopRecording
         }
         guard activity.state != .transcribing else {
-            return "Another session is being processed. Try again when it finishes."
+            return SessionBlockReason.anotherRun
         }
         let engine = JobRequest.engine(engineUsed: session.engineUsed, defaultEngine: activity.defaultEngine)
         return offlineReason(status: session.status, engine: engine, isOnline: activity.isOnline)
@@ -79,8 +86,8 @@ enum RegenerateNotesPolicy {
     }
 
     static let noTranscriptMessage = "This session has no saved transcript yet. Transcribe it first."
-    static let stopFirstMessage = "Stop the recording before processing a session."
-    static let otherRunMessage = "Another session is being processed. Try again when it finishes."
+    static let stopFirstMessage = SessionBlockReason.stopRecording
+    static let otherRunMessage = SessionBlockReason.anotherRun
     static let ownRunMessage = "This session is being processed. Try again when it finishes."
     static let noKeyMessage = "Add an OpenRouter API key in Settings → AI notes to regenerate notes."
 

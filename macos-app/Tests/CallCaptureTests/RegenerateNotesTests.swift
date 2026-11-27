@@ -49,6 +49,17 @@ import Testing
         #expect(Self.problem("transcribed", AppActivity(state: .transcribing)) == Self.otherRun)
     }
 
+    /// The page folds a shared reason into one line, so both policies must say it with the same words.
+    @Test func bothPoliciesShareTheirBlockReasons() {
+        let recording = AppActivity(state: .recording)
+        let running = AppActivity(state: .transcribing)
+        #expect(Self.problem("transcribed", recording)?.message == SessionBlockReason.stopRecording)
+        #expect(Self.problem("transcribed", running)?.message == SessionBlockReason.anotherRun)
+        let session = Self.session("transcribed")
+        #expect(ReprocessPolicy.problem(for: session, activity: recording) == SessionBlockReason.stopRecording)
+        #expect(ReprocessPolicy.problem(for: session, activity: running) == SessionBlockReason.anotherRun)
+    }
+
     @Test func theSessionsOwnRunSaysSo() {
         #expect(Self.problem("transcribing", AppActivity(state: .transcribing))
             == Self.busy("This session is being processed. Try again when it finishes."))
