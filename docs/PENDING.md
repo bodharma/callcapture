@@ -59,22 +59,22 @@ Accepted on purpose; listed so nobody "fixes" them by accident.
 
 #### Can wait (from the final review triage; not fixed)
 Security and correctness, low:
-- `ServerSecurity.constantTimeEquals` folds the length difference into a `UInt8` (truncating); lengths that differ by a multiple of 256 aren't flagged by that term alone.
-- Keychain and settings write failures still answer 200/204.
-- `access(2)` checks may not match what TCC lets the app read.
-- Waveform peaks (`WaveformPeaks`, `GET …/peaks`): no single-flight (two requests compute the same peaks), an orphaned computation keeps running after its request ends, and `Blocking.run` is uncapped.
-- Some file and database reads still block the Swift cooperative pool.
-- Errors show raw codes in places (e.g. `busy`, `failed`) where a sentence would help.
+- `ServerSecurity.constantTimeEquals` truncates the length difference to a `UInt8`, and missing bytes compare as 0: a value padded with 256·k NUL bytes compares equal.
+- `SettingsManager` (didSet persist) and `KeychainHelper.save` only log failures, so a failed write still answers 200/204.
+- The folders' "writable" check uses `access(2)`, which can pass while TCC still blocks the write.
+- Waveform peaks (`GET …/peaks`): no single-flight; a DELETE during a computation leaves an orphan `_peaks.json`; `Blocking.run` is uncapped and can't be cancelled.
+- Blocking file I/O on the cooperative pool: `SessionDTO` checks `fileExists` five times per session; transcript, analysis and export reads; `SavedLiveMap` reads the whole file before its 100 MB check.
+- Code-only error envelopes show raw codes (e.g. "not_found").
 
 Web:
-- Refetch volume: `sessionChanged` and `recording` both invalidate open details and the list, and some changes post duplicate events.
-- `TranscriptionPane` repeats the `RemoteProvider` set in its copy; it can drift from the Swift enum.
-- Cyrillic (and other non-Latin) text falls back to system font glyphs: only Latin subsets of the fonts are bundled.
+- Refetch volume and duplicate events (final review). `recording` events now also refetch open session details (Minor 6 of the fix wave).
+- `TranscriptionPane`'s auto-routing copy duplicates the `RemoteProvider` set, and its claims aren't checked against the worker's router.
+- Only Latin font subsets are registered: Ukrainian (Cyrillic) text falls back to system glyphs.
 
 Native and tooling:
-- The popover has no ScrollView; a tall state can exceed the screen.
-- `NativeChangeEventsTests` waits with fixed sleeps.
-- CI pins `Xcode_26.1.1`, and the Playwright browsers are not cached between runs.
+- The popover can exceed the screen height (no ScrollView).
+- `NativeChangeEventsTests` uses fixed 100 ms sleeps and an exact event count: flake risk on slow CI.
+- CI pins `Xcode_26.1.1` (unverified until pushed), and the Playwright browsers aren't cached.
 
 ### Live model catalog and offline behaviour
 - **Status:** implemented on branch feat/live-model-catalog (unreleased). Details: [FEATURES.md](FEATURES.md#implemented-locally-unreleased-2026-11-26-branch-featlive-model-catalog).
