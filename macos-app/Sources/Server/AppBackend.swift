@@ -24,11 +24,12 @@ protocol AppBackend: SettingsBackend {
     func speakerNames(id: String) async throws -> SpeakerNames
     /// A blank name restores the original label.
     func renameSpeaker(id: String, label: String, name: String) async throws
-    /// Removes the session and its files; throws `BackendError.busy` while it is in use.
+    /// Removes the session and its files; throws `BackendError.busy` with the
+    /// `DeletePolicy` reason while it is in use.
     func delete(id: String) async throws
     /// Starts processing in the background and returns once it has started; the
     /// session's `status` / `errorMessage` report progress and the outcome.
-    /// Throws `.notFound`, or `.busy(reason)` when it cannot start now.
+    /// Throws `.notFound`, or `.busy(reason)` with the `ReprocessPolicy` reason.
     func reprocess(id: String) async throws
     /// Writes the note (names applied) into the configured vault; returns the new file.
     func saveToVault(id: String) async throws -> URL
@@ -40,11 +41,9 @@ protocol AppBackend: SettingsBackend {
     func updateDetails(id: String, _ change: SessionDetailsChange) async throws
     /// Opens the session's Markdown note with the default app (main actor); throws `.notFound`.
     func openNote(id: String) async throws
-    /// 0…1 while the session transcribes, nil otherwise.
-    func transcriptionProgress(id: String) async -> Double?
-    /// Why Transcribe / Re-process / Retry is off right now because the network is
-    /// needed (`ReprocessPolicy.offlineReason`), so the UI can say so before a click.
-    func reprocessOfflineReason(for session: Session) async -> String?
+    /// What the app is doing, for the session guards (`DeletePolicy`, `ReprocessPolicy`,
+    /// `ProcessingProgress`): the detail answer says what is off, and why, before a click.
+    func activity() async -> AppActivity
 
     // MARK: Events, recording and the live view
 

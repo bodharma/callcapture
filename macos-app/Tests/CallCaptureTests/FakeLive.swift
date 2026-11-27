@@ -2,9 +2,10 @@ import Foundation
 
 @testable import CallCapture
 
-/// Recording control and the live map for `FakeBackend`. The refusals come from the
-/// production checks (`RecordingRequestError.check`, `LiveAction.problem`), so the API
-/// tests exercise the same rules as the app; only the effects are recorded instead.
+/// Recording control and the live map for `FakeBackend`. The refusals and target
+/// resolution come from the production checks (`RecordingRequestError.check`,
+/// `LiveAction.problem`, `LiveTargetPolicy`), so the API tests exercise the same rules
+/// as the app; only the effects are recorded instead.
 final class FakeLive: @unchecked Sendable {
     struct Performed: Equatable {
         let action: LiveAction
@@ -30,6 +31,19 @@ final class FakeLive: @unchecked Sendable {
         }
     }
 
+    /// Changes the recording state only (the live model download flag stays).
+    func setRecording(state: AppState, transition: RecordingTransition?) {
+        lock.withLock {
+            self.state = state
+            self.transition = transition
+        }
+    }
+
+    var recording: (state: AppState, transition: RecordingTransition?) { lock.withLock { (state, transition) } }
+
+    /// The active meeting's session id, as the controller's document reports it ("" for none).
+    var activeSessionID: String { lock.withLock { current?.sessionID ?? "" } }
+
     func setCurrent(_ document: ConversationDocument?) { lock.withLock { current = document } }
 
     func request(_ wanted: RecordingTransition) throws {
@@ -45,7 +59,9 @@ final class FakeLive: @unchecked Sendable {
 
     func currentView() -> LiveView? {
         lock.withLock {
-            current.map { document in
+            guard LiveTargetPolicy.viewSource(.current, activeSessionID: current?.sessionID ?? "") == .active
+            else { return nil }
+            return current.map { document in
                 LiveView(
                     document: document, live: document.isRecording, status: "Live notes (en)",
                     processingStatus: "Local speech active · You / Remote audio", error: nil, followsLive: true,
@@ -60,15 +76,10 @@ final class FakeLive: @unchecked Sendable {
         -> LiveActionOutcome
     {
         try lock.withLock {
-            let document: ConversationDocument
-            switch target {
-            case .current:
-                guard let current, current.isRecording else { throw LiveActionError.noLiveMeeting }
-                document = current
-            case .session:
-                guard let saved else { throw BackendError.notFound }
-                document = saved
-            }
+            let source = try LiveTargetPolicy.actionSource(
+                target, activeSessionID: current?.sessionID ?? "", activeIsRecording: current?.isRecording ?? false,
+                savedMapExists: saved != nil)
+            guard let document = source == .active ? current : saved else { throw LiveActionError.notFound }
             if let problem = action.problem(in: document) { throw problem }
             performed.append(Performed(action: action, target: target))
             return action == .export ? .exported("/tmp/Weekly-sync-live.md") : .done
@@ -92,11 +103,14 @@ extension FakeBackend {
     func stopRecording() async throws { try live.request(.stopping) }
 
     func liveView(_ target: LiveTarget) async throws -> LiveView? {
-        switch target {
-        case .current:
-            return live.currentView()
-        case .session(let id):
-            guard let document = try await liveDocument(id: id) else { throw BackendError.notFound }
+        if case .session(let id) = target { _ = try await requireSession(id) }
+        switch LiveTargetPolicy.viewSource(target, activeSessionID: live.activeSessionID) {
+        case nil: return nil
+        case .active: return live.currentView()
+        case .saved:
+            guard case .session(let id) = target, let document = try await liveDocument(id: id) else {
+                throw BackendError.notFound
+            }
             return .saved(document, microphoneEnabled: true)
         }
     }

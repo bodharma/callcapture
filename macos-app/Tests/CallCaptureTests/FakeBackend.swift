@@ -5,20 +5,22 @@ import Foundation
 /// In-memory app side for API tests. Only app-level effects are faked (the
 /// session list, delete/reprocess/vault/reveal, system status); transcripts,
 /// names, notes, analysis and live maps go through the shared production
-/// defaults over files the test writes into a temp directory.
+/// defaults over files the test writes into a temp directory. Refusals and
+/// progress come from the production guards (`DeletePolicy`, `ReprocessPolicy`,
+/// `ProcessingProgress`) over the fake's `AppActivity` (`setActivity`).
 final class FakeBackend: AppBackend, @unchecked Sendable {
     private let lock = NSLock()
     private var store: [Session] = []
     private var deleted: [String] = []
     private var revealed: [String] = []
     private var reprocessed: [String] = []
-    private var reprocessRefusal: String?
     private var reprocessOutcome: (status: String, error: String?) = ("transcribed", nil)
     private var reprocessGate: AsyncStream<Void>.Continuation?
     private var reprocessRun: Task<Void, Never>?
-    private var deleteFailure: BackendError?
     private var opened: [String] = []
-    private var progress: [String: Double] = [:]
+    private var playbackBlocked = false
+    private var recordingSessionID: String?
+    private var processingProgress: Double = 0
     private var vaultDirectory: URL?
     private var status = SystemStatus(online: true, recording: false, version: "test")
     private var defaultEngine = "local_whisper"
@@ -39,9 +41,18 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     var revealedIDs: [String] { lock.withLock { revealed } }
     var reprocessedIDs: [String] { lock.withLock { reprocessed } }
     var openedNoteIDs: [String] { lock.withLock { opened } }
-    func setProgress(_ value: Double, for id: String) { lock.withLock { progress[id] = value } }
-    /// The next re-process cannot start (`BackendError.busy`).
-    func refuseReprocess(with reason: String?) { lock.withLock { reprocessRefusal = reason } }
+    /// What the app is doing, for the guards; the state and transition also drive `FakeLive`.
+    func setActivity(
+        state: AppState, transition: RecordingTransition? = nil, playbackBlocked: Bool = false,
+        recordingSessionID: String? = nil, progress: Double = 0
+    ) {
+        live.setRecording(state: state, transition: transition)
+        lock.withLock {
+            self.playbackBlocked = playbackBlocked
+            self.recordingSessionID = recordingSessionID
+            processingProgress = progress
+        }
+    }
     /// What a released run writes into the session record.
     func finishReprocess(status: String, error: String?) { lock.withLock { reprocessOutcome = (status, error) } }
 
@@ -52,7 +63,6 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
         gate?.finish()
         await run?.value
     }
-    func failDelete(with error: BackendError?) { lock.withLock { deleteFailure = error } }
     func saveVault(into directory: URL?) { lock.withLock { vaultDirectory = directory } }
     func setStatus(_ value: SystemStatus) { lock.withLock { status = value } }
     /// The engine a session without `engineUsed` would be processed with.
@@ -81,9 +91,11 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     }
 
     func delete(id: String) async throws {
-        _ = try await requireSession(id)
-        try lock.withLock {
-            if let deleteFailure { throw deleteFailure }
+        let session = try await requireSession(id)
+        if let problem = DeletePolicy.problem(for: session, activity: await activity()) {
+            throw BackendError.busy(problem)
+        }
+        lock.withLock {
             deleted.append(id)
             store.removeAll { $0.id == id }
         }
@@ -92,10 +104,12 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     /// Like production: marks the session as processing and returns at once; the run
     /// itself waits for `releaseReprocess()`, then records the configured outcome.
     func reprocess(id: String) async throws {
-        _ = try await requireSession(id)
+        let session = try await requireSession(id)
+        if let problem = ReprocessPolicy.problem(for: session, activity: await activity()) {
+            throw BackendError.busy(problem)
+        }
         let (released, gate) = AsyncStream<Void>.makeStream()
-        try lock.withLock {
-            if let reprocessRefusal { throw BackendError.busy(reprocessRefusal) }
+        lock.withLock {
             reprocessed.append(id)
             updateSession(id) { $0.status = "transcribing"; $0.errorMessage = nil }
             reprocessGate = gate
@@ -153,13 +167,14 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
         lock.withLock { opened.append(id) }
     }
 
-    func transcriptionProgress(id: String) async -> Double? { lock.withLock { progress[id] } }
-
-    /// The production rule over the fake's online flag and default engine.
-    func reprocessOfflineReason(for session: Session) async -> String? {
-        let (online, engine) = lock.withLock { (status.online, defaultEngine) }
-        return ReprocessPolicy.offlineReason(
-            status: session.status, engine: session.engineUsed ?? engine, isOnline: online)
+    func activity() async -> AppActivity {
+        let recording = live.recording
+        return lock.withLock {
+            AppActivity(
+                state: recording.state, transition: recording.transition, playbackBlocked: playbackBlocked,
+                isOnline: status.online, recordingSessionID: recordingSessionID, defaultEngine: defaultEngine,
+                processingProgress: processingProgress)
+        }
     }
 
     // MARK: SettingsBackend

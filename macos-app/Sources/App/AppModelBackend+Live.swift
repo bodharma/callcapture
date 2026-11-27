@@ -17,18 +17,17 @@ extension AppModelBackend {
 
     func liveView(_ target: LiveTarget) async throws -> LiveView? {
         let model = try requireModel()
-        switch target {
-        case .current:
-            return await MainActor.run {
-                model.liveMeeting.model.document.sessionID.isEmpty ? nil : Self.currentView(model)
-            }
-        case .session(let id):
-            let session = try await requireSession(id)
-            let active = await MainActor.run { () -> LiveView? in
-                model.liveMeeting.model.document.sessionID == id ? Self.currentView(model) : nil
-            }
-            if let active { return active }
-            guard let document = try SavedLiveMap.load(audioPath: session.audioPath) else {
+        var session: Session?
+        if case .session(let id) = target { session = try await requireSession(id) }
+        let (source, active) = await MainActor.run { () -> (LiveTargetSource?, LiveView?) in
+            let source = LiveTargetPolicy.viewSource(target, activeSessionID: model.liveMeeting.model.document.sessionID)
+            return (source, source == .active ? Self.currentView(model) : nil)
+        }
+        switch source {
+        case nil: return nil
+        case .active: return active
+        case .saved:
+            guard let session, let document = try SavedLiveMap.load(audioPath: session.audioPath) else {
                 throw BackendError.notFound
             }
             return .saved(document, microphoneEnabled: Self.hasMicTrack(session))
@@ -74,15 +73,14 @@ extension AppModelBackend {
     @MainActor
     private static func liveModel(_ target: LiveTarget, app: AppModel, audioPath: String?) throws -> LiveMeetingModel {
         let active = app.liveMeeting.model
-        switch target {
-        case .current:
-            guard active.document.isRecording else { throw LiveActionError.noLiveMeeting }
-            return active
-        case .session(let id):
-            if active.document.sessionID == id { return active }
-            guard let audioPath, FileManager.default.fileExists(atPath: SavedLiveMap.path(audioPath: audioPath)) else {
-                throw LiveActionError.notFound
-            }
+        let savedMapExists = audioPath.map { FileManager.default.fileExists(atPath: SavedLiveMap.path(audioPath: $0)) }
+        let source = try LiveTargetPolicy.actionSource(
+            target, activeSessionID: active.document.sessionID, activeIsRecording: active.document.isRecording,
+            savedMapExists: savedMapExists ?? false)
+        switch source {
+        case .active: return active
+        case .saved:
+            guard let audioPath else { throw LiveActionError.notFound }
             return try LiveMeetingModel.opened(audioPath: audioPath)
         }
     }

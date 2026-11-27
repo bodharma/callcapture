@@ -170,7 +170,7 @@ import Testing
     @Test func transcribingSessionReportsItsProgress() async throws {
         let (api, dir) = try Self.fixture(status: "transcribing")
         defer { try? FileManager.default.removeItem(at: dir) }
-        api.backend.setProgress(0.4, for: "S1")
+        api.backend.setActivity(state: .transcribing, progress: 0.4)
         try await api.run { client in
             let response = try await api.request(client, "/api/sessions/S1")
             #expect(try jsonObject(response)["progress"] as? Double == 0.4)
@@ -180,7 +180,7 @@ import Testing
     @Test func otherStatusesReportNoProgress() async throws {
         let (api, dir) = try Self.fixture(status: "transcribed")
         defer { try? FileManager.default.removeItem(at: dir) }
-        api.backend.setProgress(0.4, for: "S1")
+        api.backend.setActivity(state: .transcribing, progress: 0.4)
         try await api.run { client in
             let one = try jsonObject(try await api.request(client, "/api/sessions/S1"))
             #expect(one["progress"] == nil)

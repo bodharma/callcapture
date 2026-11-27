@@ -33,15 +33,23 @@ struct SessionDTO: Encodable {
     let hasNote: Bool
     let hasAnalysis: Bool
     let hasLiveMap: Bool
-    /// 0…1 while the session transcribes; omitted otherwise.
+    // Detail answers only (from `AppActivity`); omitted from the list.
+    /// 0…1 while the app processes this session; omitted otherwise.
     let progress: Double?
-    /// Why Transcribe / Re-process / Retry can't run now (offline, cloud engine);
-    /// detail answers only, omitted otherwise.
+    /// Why Transcribe / Re-process / Retry can't run now (a recording, another run,
+    /// offline with a cloud engine); omitted when it can, or the status has no such button.
     let reprocessBlocked: String?
+    /// Whether Delete can run now; `deleteBlocked` says why not.
+    let canDelete: Bool?
+    let deleteBlocked: String?
 
-    init(_ session: Session, progress: Double? = nil, reprocessBlocked: String? = nil) {
-        self.progress = progress
-        self.reprocessBlocked = reprocessBlocked
+    /// Without `activity` (the list) the guard fields are omitted.
+    init(_ session: Session, activity: AppActivity? = nil) {
+        progress = activity.flatMap { ProcessingProgress.value(for: session, activity: $0) }
+        reprocessBlocked = activity.flatMap { ReprocessPolicy.buttonReason(for: session, activity: $0) }
+        let deleteProblem = activity.flatMap { DeletePolicy.problem(for: session, activity: $0) }
+        deleteBlocked = deleteProblem
+        canDelete = activity.map { _ in deleteProblem == nil }
         id = session.id
         title = session.title
         sourceApp = session.sourceApp

@@ -70,4 +70,38 @@ import Testing
             #expect(body["reprocessBlocked"] as? String == Self.cloudOffline)
         }
     }
+
+    // MARK: What the app is doing, before any click
+
+    @Test func detailSaysToStopTheRecordingFirst() async throws {
+        let api = Self.api(engine: "local_whisper", online: true)
+        api.backend.setActivity(state: .recording, recordingSessionID: "S2")
+        try await api.run { client in
+            let body = try jsonObject(try await api.request(client, "/api/sessions/S1"))
+            #expect(body["reprocessBlocked"] as? String == "Stop the recording before processing a session.")
+        }
+    }
+
+    @Test func detailSaysAnotherSessionIsProcessed() async throws {
+        let api = Self.api(engine: "local_whisper", online: true)
+        api.backend.setActivity(state: .transcribing)
+        try await api.run { client in
+            let body = try jsonObject(try await api.request(client, "/api/sessions/S1"))
+            #expect(body["reprocessBlocked"] as? String == "Another session is being processed. Try again when it finishes.")
+            let refused = try await api.request(client, "/api/sessions/S1/reprocess", method: .post)
+            #expect(refused.status == .conflict)
+            #expect(bodyText(refused) == #"{"error":"Another session is being processed. Try again when it finishes."}"#)
+        }
+        #expect(api.backend.reprocessedIDs.isEmpty)
+    }
+
+    /// An empty stored engine counts as none, as in `JobRequest.transcribe`.
+    @Test func sessionWithAnEmptyEngineUsesTheConfiguredDefault() async throws {
+        let api = Self.api(engine: "", online: false)
+        api.backend.setDefaultEngine("remote")
+        try await api.run { client in
+            let body = try jsonObject(try await api.request(client, "/api/sessions/S1"))
+            #expect(body["reprocessBlocked"] as? String == Self.cloudOffline)
+        }
+    }
 }

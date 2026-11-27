@@ -533,7 +533,7 @@ struct SessionsAPITests {
     func reprocessRefused() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
-        fixture.backend.refuseReprocess(with: "Another session is being processed. Try again when it finishes.")
+        fixture.backend.setActivity(state: .transcribing)
         try await fixture.run { client in
             let response = try await fixture.request(client, "/api/sessions/S1/reprocess", method: .post)
             #expect(response.status == .conflict)
@@ -591,11 +591,11 @@ struct SessionsAPITests {
             #expect(reveal.status == .noContent)
             #expect(fixture.backend.revealedIDs == ["S1"])
 
-            fixture.backend.failDelete(with: .busy("Wait until recording and processing finish before deleting."))
+            fixture.backend.setActivity(state: .recording, recordingSessionID: "S1")
             let busy = try await fixture.request(client, "/api/sessions/S1", method: .delete)
             #expect(busy.status == .conflict)
             #expect((try json(busy) as? [String: Any])?["error"] as? String == "busy")
-            fixture.backend.failDelete(with: nil)
+            fixture.backend.setActivity(state: .idle)
             let deleted = try await fixture.request(client, "/api/sessions/S1", method: .delete, headers: same)
             #expect(deleted.status == .noContent)
             #expect(fixture.backend.deletedIDs == ["S1"])

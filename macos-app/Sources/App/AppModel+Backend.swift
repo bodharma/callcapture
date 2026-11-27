@@ -7,8 +7,8 @@ import os
 /// Database reads go straight to GRDB (thread-safe) and file reads use the
 /// shared defaults in `AppBackend`. Recording state, settings, the live
 /// meeting, the observed session list and AppKit calls hop to the main actor.
-/// The guards mirror what the old SwiftUI detail view disabled, because the API
-/// has to enforce them itself.
+/// The guards are the pure policies in `SessionGuards.swift` over `AppModel.activity`;
+/// the test fake applies the same functions.
 @available(macOS 14.2, *)
 final class AppModelBackend: AppBackend {
     private struct Reference { weak var model: AppModel? }
@@ -44,42 +44,29 @@ final class AppModelBackend: AppBackend {
         model?.sessionManager.session(id: id)
     }
 
+    /// Checks and deletes in one main-actor step (`DeletePolicy`).
     func delete(id: String) async throws {
         guard let model else { throw BackendError.notFound }
         try await MainActor.run {
             guard let session = model.sessionManager.session(id: id) else { throw BackendError.notFound }
-            guard session.status != "recording", model.state != .transcribing else {
-                throw BackendError.busy("Wait until recording and processing finish before deleting.")
+            if let problem = DeletePolicy.problem(for: session, activity: model.activity) {
+                throw BackendError.busy(problem)
             }
             model.sessionManager.deleteSession(id: id)
         }
     }
 
-    /// Checks and starts in one main-actor step: `startTranscription` marks the app
-    /// busy before returning, so a second request (API or SwiftUI) is refused.
+    /// Checks (`ReprocessPolicy`) and starts in one main-actor step: `startTranscription`
+    /// marks the app busy before returning, so a second request (API or menu) is refused.
     func reprocess(id: String) async throws {
         guard let model else { throw BackendError.notFound }
         try await MainActor.run {
             guard let session = model.sessionManager.session(id: id) else { throw BackendError.notFound }
-            if let problem = Self.reprocessProblem(session, model: model) { throw BackendError.busy(problem) }
+            if let problem = ReprocessPolicy.problem(for: session, activity: model.activity) {
+                throw BackendError.busy(problem)
+            }
             model.startTranscription(session)
         }
-    }
-
-    @MainActor
-    private static func reprocessProblem(_ session: Session, model: AppModel) -> String? {
-        guard ReprocessPolicy.processableStatuses.contains(session.status) else {
-            return "This session can't be processed while it is \(session.status)."
-        }
-        // Processing takes over AppModel.state; during a recording that would leave the
-        // menu unable to stop the capture (see the Task 5 report, pre-review fix #5).
-        guard model.state != .recording, !model.playbackBlocked else {
-            return "Stop the recording before processing a session."
-        }
-        guard model.state != .transcribing else {
-            return "Another session is being processed. Try again when it finishes."
-        }
-        return offlineReason(session, model: model)
     }
 
     func saveToVault(id: String) async throws -> URL {
@@ -146,24 +133,19 @@ final class AppModelBackend: AppBackend {
         }
     }
 
-    func reprocessOfflineReason(for session: Session) async -> String? {
-        guard let model else { return nil }
-        return await MainActor.run { Self.offlineReason(session, model: model) }
+    func activity() async -> AppActivity {
+        guard let model else { return AppActivity() }
+        return await MainActor.run { model.activity }
     }
+}
 
-    @MainActor
-    private static func offlineReason(_ session: Session, model: AppModel) -> String? {
-        let engine = JobRequest.transcribe(session: session, settings: model.settingsManager).engine
-        return ReprocessPolicy.offlineReason(
-            status: session.status, engine: engine, isOnline: model.connectivity.isOnline)
-    }
-
-    func transcriptionProgress(id: String) async -> Double? {
-        guard let model else { return nil }
-        return await MainActor.run {
-            guard model.state == .transcribing, model.sessionManager.session(id: id)?.status == "transcribing"
-            else { return nil }
-            return min(max(model.pythonBridge.progress, 0), 1)
-        }
+@available(macOS 14.2, *)
+extension AppModel {
+    /// What the session guards decide from, read in one main-actor step.
+    @MainActor var activity: AppActivity {
+        AppActivity(
+            state: state, transition: recordingTransition, playbackBlocked: playbackBlocked,
+            isOnline: connectivity.isOnline, recordingSessionID: sessionManager.currentSession?.id,
+            defaultEngine: settingsManager.defaultEngine.rawValue, processingProgress: pythonBridge.progress)
     }
 }

@@ -94,18 +94,11 @@ struct JobRequest: Codable, Sendable {
         } else {
             provider = settings.remoteProvider.rawValue
         }
-        // Re-processing an already-transcribed session must reuse the engine it
-        // was first transcribed with; falling back to `defaultEngine` would
-        // silently switch a remote session to local Whisper — wrong quality and
-        // a $0.00 transcription cost. A fresh session has no `engineUsed` yet, so
-        // it uses the configured default.
-        let engine = session.engineUsed.flatMap { $0.isEmpty ? nil : $0 }
-            ?? settings.defaultEngine.rawValue
         return JobRequest(
             jobId: session.id,
             command: "transcribe",
             audioPath: session.audioPath,
-            engine: engine,
+            engine: engine(engineUsed: session.engineUsed, defaultEngine: settings.defaultEngine.rawValue),
             language: session.language,
             markdownProfile: settings.markdownProfile.rawValue,
             whisperModel: settings.whisperModel.rawValue,
@@ -116,6 +109,15 @@ struct JobRequest: Codable, Sendable {
             sttRatesPerMin: settings.sttRatesPerMin,
             llmFallbackRatePer1M: settings.llmFallbackRatePer1M
         )
+    }
+
+    /// The engine a session is processed with. Re-processing an already-transcribed
+    /// session must reuse the engine it was first transcribed with; falling back to the
+    /// default would silently switch a remote session to local Whisper (wrong quality and
+    /// a $0.00 transcription cost). A fresh session has no `engineUsed` yet (nil or empty),
+    /// so it uses the configured default. The API's offline guard uses the same rule.
+    static func engine(engineUsed: String?, defaultEngine: String) -> String {
+        engineUsed.flatMap { $0.isEmpty ? nil : $0 } ?? defaultEngine
     }
 }
 
