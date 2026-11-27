@@ -82,14 +82,7 @@ struct ModelCatalogStatusRow: View {
 }
 
 enum ModelPickerFormat {
-    static func usd(_ value: Double) -> String {
-        switch value {
-        case 0: "free"
-        case ..<0.01: String(format: "$%.4f", value)
-        case ..<10: String(format: "$%.2f", value)
-        default: String(format: "$%.0f", value)
-        }
-    }
+    static func usd(_ value: Double) -> String { LiveNotesUsageText.usd(value) }
 
     static func score(_ value: Double?, fraction: Bool = false) -> String {
         guard let value else { return "—" }
