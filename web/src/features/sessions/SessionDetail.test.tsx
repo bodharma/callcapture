@@ -254,6 +254,34 @@ describe("SessionDetail", () => {
     expect(await screen.findByRole("button", { name: "Transcribe" })).toBeTruthy();
   });
 
+  it("keeps the page when a refresh in the background fails", async () => {
+    let fail = false;
+    const fetchFn = api(sessionFixture(), {
+      "/api/sessions/S1": () => (fail ? { status: 500, body: { error: "failed" } } : sessionFixture()),
+    });
+    renderAt("/sessions/S1");
+    expect(await screen.findByRole("heading", { level: 1, name: "Weekly sync, release plan" })).toBeTruthy();
+    fail = true;
+    act(() => FakeEventSource.latest().emit("sessionChanged", { id: "S1" }));
+    await waitFor(() => expect(calls(fetchFn).filter((call) => call === "GET /api/sessions/S1")).toHaveLength(2));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.getByRole("heading", { level: 1, name: "Weekly sync, release plan" })).toBeTruthy();
+    expect(screen.queryByText(/This session couldn't be loaded/)).toBeNull();
+  });
+
+  it("replaces the page when a refresh says the session is gone", async () => {
+    let gone = false;
+    api(sessionFixture(), {
+      "/api/sessions/S1": () => (gone ? { status: 404, body: { error: "not_found" } } : sessionFixture()),
+    });
+    renderAt("/sessions/S1");
+    expect(await screen.findByRole("heading", { level: 1 })).toBeTruthy();
+    gone = true;
+    act(() => FakeEventSource.latest().emit("sessionChanged", { id: "S1" }));
+    expect(await screen.findByText("This session isn't there any more. It may have been deleted.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Back to sessions" })).toBeTruthy();
+  });
+
   it("says why re-processing is off before any click, and re-enables when the app is back online", async () => {
     const reason = "Offline — this needs an internet connection. This session uses cloud transcription.";
     let blocked: string | undefined = reason;

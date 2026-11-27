@@ -53,8 +53,10 @@ function SessionView({ id }: { id: string }) {
   }, [focusTime, player]);
 
   if (query.isPending) return <p className="empty" aria-busy="true">Loading the session…</p>;
-  if (query.isError) {
-    const gone = query.error instanceof ApiError && query.error.status === 404;
+  const gone = query.isError && query.error instanceof ApiError && query.error.status === 404;
+  // A failed refresh in the background keeps the page it had; only a 404 (deleted) or a
+  // first load that failed replaces it.
+  if (query.isError && (gone || !query.data)) {
     return (
       <div className="empty">
         <p>
