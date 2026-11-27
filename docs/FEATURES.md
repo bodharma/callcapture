@@ -95,6 +95,11 @@ speakers and capture health remain open.
 Spec: [hybrid UI and signal-room redesign](superpowers/specs/2026-11-26-hybrid-ui-design.md);
 plan: [plan](superpowers/plans/2026-11-26-hybrid-ui.md). Not pushed or released.
 
+- **Regenerate AI notes.** A session with a saved transcript can have its notes made
+  again, without transcribing or uploading audio. The earlier notes (and sentiment) stay
+  if the AI step fails.
+- **Model table filters.** Settings → AI notes filters the model list by provider (a
+  collapsible, searchable checklist), cost, Ukrainian quality, context length and tags.
 - **One web UI, three places.** Sessions, Settings and the live meeting view are a
   React app served by a loopback server inside the app. It shows in the archive
   window, in the floating live panel, and in the browser ("Open in browser").

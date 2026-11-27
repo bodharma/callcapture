@@ -71,6 +71,14 @@ Web:
 - `TranscriptionPane`'s auto-routing copy duplicates the `RemoteProvider` set, and its claims aren't checked against the worker's router.
 - Only Latin font subsets are registered: Ukrainian (Cyrillic) text falls back to system glyphs.
 
+Regenerate AI notes and model filters:
+- A kept (failed) regenerate run doesn't record its LLM spend, even though the calls were made.
+- The reason shown when the AI step fell back can be empty; the wording then reads badly.
+- Cancelling during the last stretch of a run (after the AI calls, while files are written) may still finish the write.
+- When the emotion model isn't ready, a regenerate loses the earlier acoustic arc in the sentiment.
+- The empty-catalog message in the model table needs better wording.
+- `transcribe` writes the raw transcript after the notes; consider writing it right after transcription.
+
 Native and tooling:
 - The popover can exceed the screen height (no ScrollView).
 - `NativeChangeEventsTests` uses fixed 100 ms sleeps and an exact event count: flake risk on slow CI.
