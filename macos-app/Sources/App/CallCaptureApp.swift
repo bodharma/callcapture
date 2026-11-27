@@ -620,12 +620,11 @@ final class AppModel {
                 Self.logger.info(
                     "Auto-transcription enabled, starting transcription"
                 )
-                // Run as a cancellable background task so Stop returns
-                // immediately and the user can cancel transcription.
-                state = .transcribing
-                transcriptionTask = Task { [weak self] in
-                    await self?.transcribeSession(finalized)
-                }
+                // Run as a cancellable background task so Stop returns immediately and
+                // the user can cancel transcription. `startTranscription` marks the app
+                // busy and the row `transcribing` in this same main-actor step, so the
+                // delete and re-process guards never see the session as idle meanwhile.
+                startTranscription(finalized)
             } else {
                 state = .idle
             }
