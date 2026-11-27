@@ -1,6 +1,6 @@
 # Pending Work
 
-Open threads / parked items. Last updated 2026-11-27.
+Open threads / parked items. Last updated 2026-11-27 (final review fixes).
 
 See [the prioritised feature backlog](FEATURES.md) for the competitive upgrade
 roadmap, including the verified transcription, speaker-label, output-profile and
@@ -32,6 +32,10 @@ Nothing below was run in the real app; the suites use fakes.
 - The session header shows the cost split; "No API keys required…" shows for local transcription and local notes.
 - A live meeting end to end, in the panel and in the browser.
 - Dev loop: sign in with "Open in browser", then the Vite dev server at `http://127.0.0.1:5173` (checked against the fake app only).
+- Restart the app with a browser tab open: the tab asks to sign in again (the app reuses its last port). With that port taken by another process, the app starts on another port and the old tab says "CallCapture isn't answering…" after a few seconds.
+- Close the archive window during playback: the audio stops; reopening shows the page signed in again. Same for the live panel during a meeting.
+- Force-quit during processing, then relaunch: the session shows Re-process or Transcribe with "Processing stopped when the app quit.", and can be deleted.
+- Start a meeting from the web's Record button with the live map on: the floating panel opens once.
 
 #### Known differences from the old windows
 Accepted on purpose; listed so nobody "fixes" them by accident.
@@ -51,6 +55,26 @@ Accepted on purpose; listed so nobody "fixes" them by accident.
 - Stop is refused while the live speech model downloads (menu and web). The reason says "cancel it from the menu", but Cancel download is hidden while recording.
 - Resolved by removing the SwiftUI detail view: it allowed re-processing during a recording, which took over the app state. The web API refuses that with 409.
 - `ConversationAnalysis.hasContent` is now used only by its tests (it decided the old insights panel).
+- `LiveWorkerProcess.transcribe` waits for its `chunk_done`; a worker that writes it and exits before the reader thread has parsed it is still reported as "exited before completing accepted audio". The `finish()` race is fixed; this one needs the reader to drain before the exit check.
+
+#### Can wait (from the final review triage; not fixed)
+Security and correctness, low:
+- `ServerSecurity.constantTimeEquals` folds the length difference into a `UInt8` (truncating); lengths that differ by a multiple of 256 aren't flagged by that term alone.
+- Keychain and settings write failures still answer 200/204.
+- `access(2)` checks may not match what TCC lets the app read.
+- `PeaksCache`: no single-flight (two requests compute the same peaks), an orphaned computation keeps running after its request ends, and `Blocking.run` is uncapped.
+- Some file and database reads still block the Swift cooperative pool.
+- Errors show raw codes in places (e.g. `busy`, `failed`) where a sentence would help.
+
+Web:
+- Refetch volume: `sessionChanged` and `recording` both invalidate open details and the list, and some changes post duplicate events.
+- `TranscriptionPane` repeats the `RemoteProvider` set in its copy; it can drift from the Swift enum.
+- Cyrillic (and other non-Latin) text falls back to system font glyphs: only Latin subsets of the fonts are bundled.
+
+Native and tooling:
+- The popover has no ScrollView; a tall state can exceed the screen.
+- `NativeChangeEventsTests` waits with fixed sleeps.
+- CI pins `Xcode_26.1.1`, and the Playwright browsers are not cached between runs.
 
 ### Live model catalog and offline behaviour
 - **Status:** implemented on branch feat/live-model-catalog (unreleased). Details: [FEATURES.md](FEATURES.md#implemented-locally-unreleased-2026-11-26-branch-featlive-model-catalog).
