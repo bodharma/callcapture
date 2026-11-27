@@ -18,6 +18,8 @@ struct CallCaptureApp: App {
     @State private var appModel: AppModel
 
     init() {
+        // The popover's signal-room faces come from the bundled web UI; before any view.
+        SignalFonts.registerBundled()
         do {
             let database = try AppDatabase()
             _appModel = State(initialValue: AppModel(database: database))
@@ -274,13 +276,14 @@ final class AppModel {
         localServerPort == nil ? nil : localServer.loginURL(path: path)
     }
 
+    /// Shows a web UI path (`/sessions`, `/sessions/<id>`, `/settings`) in the archive window.
     @MainActor
-    func showArchiveWindow() {
+    func showArchiveWindow(path: String = "/sessions") {
         let controller = archiveWindowController ?? WebWindowController(
             loginURL: { [weak self] in self?.webLoginURL(path: $0) },
             ownPort: { [weak self] in self?.localServerPort })
         archiveWindowController = controller
-        controller.show(path: "/sessions")
+        controller.show(path: path)
     }
 
     @MainActor

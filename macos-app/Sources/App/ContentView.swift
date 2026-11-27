@@ -1,337 +1,141 @@
-import SwiftUI
 import AppKit
 import OSLog
+import SwiftUI
 
-/// Main popover content displayed from the menu bar icon.
-/// Shows recording status, control button, last session info,
-/// and a link to the diagnostics window.
+/// The menu bar popover: reads `AppModel` into plain values for `MenuPopover` and
+/// routes its actions. Sessions, Settings and the live view open in the local web
+/// UI (archive window, browser, live panel); only Diagnostics is a native window.
 @available(macOS 14.2, *)
 struct ContentView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.openWindow) private var openWindow
 
-    private static let logger = Logger(
-        subsystem: "com.callcapture.app",
-        category: "ContentView"
-    )
-
-    /// Opens a window scene and brings the app to the foreground.
-    ///
-    /// A menu bar (`LSUIElement`) app is not the active application, so
-    /// `openWindow` alone creates the window *behind* other apps with no
-    /// focus — it looks like nothing happened. Activating fixes that.
-    private func showWindow(_ id: String) {
-        Self.logger.info("Opening window '\(id)'")
-        openWindow(id: id)
-        NSApplication.shared.activate(ignoringOtherApps: true)
-    }
+    private static let logger = Logger(subsystem: "com.callcapture.app", category: "ContentView")
+    /// Recent sessions shown in the popover.
+    private static let recentCount = 3
 
     var body: some View {
-        @Bindable var appModel = appModel
-        return VStack(spacing: 16) {
-            statusHeader
-            if appModel.state == .idle || appModel.state == .error {
-                devicePickers(appModel: appModel)
-            }
-            if appModel.state == .recording {
-                Text("Device choices apply when recording starts. Unplugging an active device may interrupt audio.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if appModel.liveMeetingEnabled {
-                Button("Open Live Meeting") { showWindow("live-meeting") }
-                    .buttonStyle(.bordered)
-                Text(appModel.liveMeeting.status).font(.caption2).foregroundStyle(.secondary)
-            }
-            recordButton
-            transcriptionProgress
-            lastSessionInfo
-            Divider()
-            sessionsButton
-            webHostButtons
-            settingsButton
-            diagnosticsButton
-            Divider()
-            quitButton
-        }
-        .padding()
-        .frame(width: 280)
-        .onAppear { appModel.refreshAudioDevices() }
+        MenuPopover(state: state, choices: choices, actions: actions)
+            .onAppear { appModel.refreshAudioDevices() }
     }
 
-    /// Output (speaker) and microphone selection, shown before recording.
-    @ViewBuilder
-    private func devicePickers(appModel: AppModel) -> some View {
-        @Bindable var appModel = appModel
-        VStack(spacing: 6) {
-            Picker("Type", selection: $appModel.selectedRecordingType) {
-                ForEach(RecordingType.allCases) { type in
-                    Text(type.displayName).tag(type)
-                }
-            }
-            Picker("Output", selection: $appModel.selectedOutputUID) {
-                Text("System Default (\(appModel.defaultOutputDevice?.name ?? "Unavailable"))")
-                    .tag(String?.none)
-                ForEach(appModel.outputDevices) { device in
-                    Text(device.name).tag(String?.some(device.uid))
-                }
-            }
-            Picker("Speech", selection: $appModel.selectedSpeechLanguage) {
-                ForEach(SpokenLanguage.allCases) { Text($0.displayName).tag($0) }
-            }
-            Picker("Notes", selection: $appModel.selectedNotesLanguage) {
-                ForEach(SpokenLanguage.allCases) { Text($0.displayName).tag($0) }
-            }
-            Toggle("Local live meeting", isOn: $appModel.liveMeetingEnabled)
-                .toggleStyle(.checkbox)
-            if appModel.liveMeetingEnabled {
-                Text("Speech stays on this Mac. Model: \(appModel.settingsManager.whisperModel.rawValue). Auto/mixed speech is experimental and may omit or mistranscribe words. Choose English or Ukrainian when possible; recording and manual notes remain available.")
-                    .font(.caption2).foregroundStyle(.secondary)
-                Button(appModel.liveMeeting.isPreparing ? "Downloading model…" : "Download live model") {
-                    appModel.liveMeeting.prepareModel(bridge: appModel.pythonBridge,
-                                                     modelName: appModel.settingsManager.whisperModel.rawValue)
-                }.disabled(appModel.liveMeeting.isPreparing || !appModel.connectivity.isOnline)
-                if !appModel.connectivity.isOnline && !appModel.liveMeeting.isPreparing {
-                    Text(NetworkPolicy.downloadBlockReason(isOnline: false) ?? "")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-                if appModel.liveMeeting.isPreparing {
-                    Button("Cancel download") { appModel.liveMeeting.cancel() }
-                }
-                let memosOffline = appModel.settingsManager.llmProvider == .openrouter && !appModel.connectivity.isOnline
-                Toggle("Automatic memos", isOn: $appModel.automaticLiveMemos).toggleStyle(.checkbox)
-                    .disabled(memosOffline)
-                if memosOffline {
-                    Text("Offline — automatic memos need internet. Local transcript and manual notes work offline.")
-                        .font(.caption2).foregroundStyle(.secondary)
-                } else if appModel.automaticLiveMemos {
-                    Text(appModel.settingsManager.llmProvider == .openrouter
-                         ? "Committed transcript goes to OpenRouter · \(appModel.settingsManager.model(for: .live)). No speech is uploaded."
-                         : "Committed transcript goes to the configured LLM server · \(appModel.settingsManager.model(for: .live)).")
-                        .font(.caption2).foregroundStyle(.secondary)
-                } else { Text("Manual notes and local transcript only.").font(.caption2).foregroundStyle(.secondary) }
-            }
-            Toggle("Include Microphone", isOn: $appModel.includeMicrophone)
-                .toggleStyle(.checkbox)
-            if appModel.includeMicrophone {
-                Picker("Mic", selection: $appModel.selectedMicUID) {
-                    Text("System Default (\(appModel.defaultInputDevice?.name ?? "Unavailable"))")
-                        .tag(String?.none)
-                    ForEach(appModel.inputDevices) { device in
-                        Text(device.name).tag(String?.some(device.uid))
-                    }
-                }
-            }
-        }
-        .pickerStyle(.menu)
-        .font(.caption)
-    }
+    // MARK: State
 
-    @ViewBuilder
-    private var statusHeader: some View {
-        HStack {
-            Image(systemName: appModel.menuBarIconName)
-                .font(.title2)
-                .foregroundStyle(statusColor)
-            Text(statusText)
-                .font(.headline)
-            Spacer()
-        }
-    }
-
-    /// The same rule as the web UI's button (`RecordingButton.current`).
-    @ViewBuilder
-    private var recordButton: some View {
+    private var state: MenuState {
+        let model = appModel
+        let settings = model.settingsManager
+        let recording = model.state == .recording
         let button = RecordingButton.current(
-            state: appModel.state, transition: appModel.recordingTransition,
-            livePreparing: appModel.liveMeeting.isPreparing)
-        let stops = button.action == .stopping
-        Button {
-            Task {
-                await appModel.toggleRecording()
-                if appModel.state == .recording && appModel.liveMeetingEnabled { showWindow("live-meeting") }
-            }
-        } label: {
-            Label(stops ? "Stop Recording" : "Start Recording", systemImage: stops ? "stop.circle.fill" : "record.circle")
-                .frame(maxWidth: .infinity)
+            state: model.state, transition: model.recordingTransition, livePreparing: model.liveMeeting.isPreparing)
+        let liveInUse = recording && model.liveMeetingEnabled
+        let document = model.liveMeeting.model.document
+        let online = model.connectivity.isOnline
+        var state = MenuState()
+        state.recording = recording
+        state.headerWord = MenuText.header(state: model.state, transition: model.recordingTransition)
+        state.button = button
+        state.recordLabel = MenuText.recordLabel(button, stopMakesNotes: settings.autoProcessOnStop)
+        state.channels = MenuText.channels(
+            recording: recording, microphoneOn: recording ? model.liveMicrophoneEnabled : model.includeMicrophone,
+            micName: micName, outputName: outputName,
+            live: liveInUse ? MenuText.LiveRuntime(running: model.liveMeeting.isRunning, status: model.liveMeeting.status) : nil)
+        state.deviceNote = MenuText.deviceNote(followsSystem: model.selectedOutputUID == nil && model.selectedMicUID == nil)
+        state.serverUp = model.localServerPort != nil
+        state.offlineLine = online ? nil : MenuText.offlineLine(engine: settings.defaultEngine, provider: settings.llmProvider)
+        state.notice = model.state == .idle ? model.notice : nil
+        state.problem = model.state == .error ? model.lastError : nil
+        state.processing = model.state == .transcribing ? model.pythonBridge.progress : nil
+        state.recordingTitle = model.sessionManager.currentSession?.title ?? "Recording"
+        state.recordingStartedAt = model.sessionManager.currentSession?.startedAt
+        if liveInUse {
+            state.liveNow = MenuText.nowOn(
+                topics: document.topics, currentTopicID: document.currentTopicID, lastTurn: document.turns.last)
+            state.spendLine = document.liveNotesUsage.map(LiveNotesUsageText.line)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(stops ? .red : .accentColor)
-        .disabled(!button.enabled)
+        state.live = liveSetup(online: online)
+        state.devices = DeviceLists(
+            outputs: model.outputDevices, inputs: model.inputDevices,
+            defaultOutputName: model.defaultOutputDevice?.name ?? "Unavailable",
+            defaultInputName: model.defaultInputDevice?.name ?? "Unavailable")
+        state.recent = model.sessionManager.recentSessions
+            .sorted { $0.startedAt > $1.startedAt }
+            .prefix(Self.recentCount)
+            .map { MenuText.recentRow($0, calendar: .current) }
+        return state
     }
 
-    @ViewBuilder
-    private var lastSessionInfo: some View {
-        if let title = appModel.lastSessionTitle,
-           let date = appModel.lastSessionDate {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Last Session")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(title)
-                    .font(.subheadline)
-                // Static recorded-at time + fixed duration. Do NOT use
-                // `style: .relative` here — it auto-ticks every second and
-                // reads as a recording timer that never stopped.
-                Text(lastSessionSubtitle(date: date))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-
-        if let notice = appModel.notice, appModel.state == .idle {
-            Label(notice, systemImage: "wifi.slash")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        if !appModel.connectivity.isOnline, appModel.settingsManager.defaultEngine == .remote {
-            Text("Offline — cloud transcription will wait; recording works.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-
-        if let error = appModel.lastError, appModel.state == .error {
-            Label(error, systemImage: "exclamationmark.triangle")
-                .font(.caption)
-                .foregroundStyle(.red)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
+    private var micName: String {
+        let model = appModel
+        let chosen = model.selectedMicUID.flatMap { uid in model.inputDevices.first { $0.uid == uid } }
+        return (chosen ?? model.defaultInputDevice)?.name ?? "No microphone found"
     }
 
-    @ViewBuilder
-    private var transcriptionProgress: some View {
-        if appModel.state == .transcribing {
-            VStack(spacing: 8) {
-                ProgressView(value: appModel.pythonBridge.progress)
-                    .progressViewStyle(.linear)
-                Text("Transcribing...")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Button(role: .cancel) {
-                    appModel.cancelTranscription()
-                } label: {
-                    Label("Cancel", systemImage: "xmark.circle")
-                        .frame(maxWidth: .infinity)
+    private var outputName: String {
+        let model = appModel
+        let chosen = model.selectedOutputUID.flatMap { uid in model.outputDevices.first { $0.uid == uid } }
+        return (chosen ?? model.defaultOutputDevice)?.name ?? "No output found"
+    }
+
+    private func liveSetup(online: Bool) -> LiveSetup {
+        let settings = appModel.settingsManager
+        let memosOffline = settings.llmProvider == .openrouter && !online
+        let caption: String
+        if memosOffline {
+            caption = "Offline — automatic memos need internet. Local transcript and manual notes work offline."
+        } else if appModel.automaticLiveMemos {
+            caption = settings.llmProvider == .openrouter
+                ? "Committed transcript goes to OpenRouter · \(settings.model(for: .live)). No speech is uploaded."
+                : "Committed transcript goes to the configured LLM server · \(settings.model(for: .live))."
+        } else {
+            caption = "Manual notes and local transcript only."
+        }
+        return LiveSetup(
+            modelName: settings.whisperModel.rawValue, preparing: appModel.liveMeeting.isPreparing,
+            downloadBlocked: NetworkPolicy.downloadBlockReason(isOnline: online),
+            memosOffline: memosOffline, memosCaption: caption)
+    }
+
+    // MARK: Choices and actions
+
+    private var choices: MenuChoices {
+        @Bindable var model = appModel
+        return MenuChoices(
+            recordingType: $model.selectedRecordingType, speech: $model.selectedSpeechLanguage,
+            notes: $model.selectedNotesLanguage, liveEnabled: $model.liveMeetingEnabled,
+            automaticMemos: $model.automaticLiveMemos, includeMicrophone: $model.includeMicrophone,
+            outputUID: $model.selectedOutputUID, micUID: $model.selectedMicUID)
+    }
+
+    private var actions: MenuActions {
+        let model = appModel
+        return MenuActions(
+            record: {
+                Task { @MainActor in
+                    await model.toggleRecording()
+                    // A live meeting opens its floating panel, as the old Live Meeting window did.
+                    if model.state == .recording && model.liveMeetingEnabled { model.showLivePanel() }
                 }
-                .buttonStyle(.bordered)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var sessionsButton: some View {
-        Button {
-            showWindow("sessions")
-        } label: {
-            Label("View Sessions", systemImage: "list.bullet.rectangle")
-                .font(.subheadline)
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// Entry points to the local web UI; disabled until the loopback server is bound.
-    @ViewBuilder
-    private var webHostButtons: some View {
-        let serverUp = appModel.localServerPort != nil
-        VStack(alignment: .leading, spacing: 6) {
-            webHostButton("Open archive", systemImage: "rectangle.on.rectangle") {
-                appModel.showArchiveWindow()
-            }
-            webHostButton("Open in browser", systemImage: "safari") {
-                if let url = appModel.webLoginURL(path: "/sessions") {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-            webHostButton("Open live panel", systemImage: "rectangle.bottomthird.inset.filled") {
-                appModel.showLivePanel()
-            }
-            if !serverUp {
-                Text("Local server isn't running.")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-        }
-        .disabled(!serverUp)
-    }
-
-    private func webHostButton(
-        _ title: String, systemImage: String, action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage).font(.subheadline)
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private var settingsButton: some View {
-        Button {
-            showWindow("settings")
-        } label: {
-            Label("Settings", systemImage: "gear")
-                .font(.subheadline)
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private var diagnosticsButton: some View {
-        Button {
-            showWindow("diagnostics")
-        } label: {
-            Label("Diagnostics", systemImage: "stethoscope")
-                .font(.subheadline)
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private var quitButton: some View {
-        Button {
-            Self.logger.info("Quit requested from popover")
-            // Triggers applicationWillTerminate -> teardownForExit, which
-            // releases audio capture and any running worker process.
-            NSApplication.shared.terminate(nil)
-        } label: {
-            Label("Quit CallCapture", systemImage: "power")
-                .font(.subheadline)
-                .foregroundStyle(.red)
-        }
-        .buttonStyle(.plain)
-        .keyboardShortcut("q", modifiers: .command)
-    }
-
-    /// Static subtitle for the last session: recorded time + fixed duration.
-    private func lastSessionSubtitle(date: Date) -> String {
-        let time = date.formatted(date: .omitted, time: .shortened)
-        if let duration = appModel.lastSessionDuration {
-            return "Recorded \(time) · \(formattedDuration(duration))"
-        }
-        return "Recorded \(time)"
-    }
-
-    private func formattedDuration(_ seconds: Double) -> String {
-        let total = Int(seconds.rounded())
-        return String(format: "%d:%02d", total / 60, total % 60)
-    }
-
-    private var statusColor: Color {
-        switch appModel.state {
-        case .idle: .secondary
-        case .recording: .red
-        case .transcribing: .orange
-        case .error: .red
-        }
-    }
-
-    private var statusText: String {
-        switch appModel.state {
-        case .idle: "Ready"
-        case .recording: "Recording..."
-        case .transcribing: "Transcribing..."
-        case .error: "Error"
-        }
+            },
+            cancelProcessing: { model.cancelTranscription() },
+            downloadLiveModel: {
+                model.liveMeeting.prepareModel(bridge: model.pythonBridge, modelName: model.settingsManager.whisperModel.rawValue)
+            },
+            cancelLiveDownload: { model.liveMeeting.cancel() },
+            openArchive: { path in model.showArchiveWindow(path: path) },
+            openBrowser: {
+                if let url = model.webLoginURL(path: "/sessions") { NSWorkspace.shared.open(url) }
+            },
+            openLivePanel: { model.showLivePanel() },
+            openDiagnostics: {
+                Self.logger.info("Opening the Diagnostics window")
+                // A menu bar app isn't active, so the window would open behind other apps.
+                openWindow(id: "diagnostics")
+                NSApplication.shared.activate(ignoringOtherApps: true)
+            },
+            quit: {
+                Self.logger.info("Quit requested from popover")
+                // Triggers applicationWillTerminate -> teardownForExit.
+                NSApplication.shared.terminate(nil)
+            })
     }
 }
