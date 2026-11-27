@@ -130,4 +130,34 @@ final class AppModelBackend: AppBackend {
             SystemStatus(online: model.connectivity.isOnline, version: Self.version, recordingStatus: model.recordingStatus)
         }
     }
+
+    func updateDetails(id: String, _ change: SessionDetailsChange) async throws {
+        guard let model else { throw BackendError.notFound }
+        try await MainActor.run {
+            let sessions = model.sessionManager
+            guard sessions.session(id: id) != nil else { throw BackendError.notFound }
+            // Each writer reports `sessionChanged` through `onSessionChange`.
+            if let value = change.recordingType { sessions.updateRecordingType(id: id, recordingType: value) }
+            if let value = change.language { sessions.updateLanguage(id: id, language: value) }
+            if let value = change.notesLanguage { sessions.updateNotesLanguage(id: id, language: value) }
+        }
+    }
+
+    /// The path comes from the session record only.
+    func openNote(id: String) async throws {
+        let path = try await requireSession(id).transcriptMarkdownPath
+        guard SessionFiles.exists(path), let path else { throw BackendError.notFound }
+        await MainActor.run {
+            _ = NSWorkspace.shared.open(URL(fileURLWithPath: path))
+        }
+    }
+
+    func transcriptionProgress(id: String) async -> Double? {
+        guard let model else { return nil }
+        return await MainActor.run {
+            guard model.state == .transcribing, model.sessionManager.session(id: id)?.status == "transcribing"
+            else { return nil }
+            return min(max(model.pythonBridge.progress, 0), 1)
+        }
+    }
 }

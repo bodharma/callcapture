@@ -24,7 +24,8 @@ export type ServerEvent =
   | { type: "connectivity"; online: boolean }
   | { type: "sessionChanged"; id: string }
   | { type: "catalog" }
-  | { type: "settings" };
+  | { type: "settings" }
+  | { type: "progress"; sessionID: string; value: number };
 
 export type Connection = "connecting" | "live" | "reconnecting" | "signedOut";
 
@@ -50,6 +51,7 @@ const EVENT_NAMES: readonly ServerEvent["type"][] = [
   "sessionChanged",
   "catalog",
   "settings",
+  "progress",
 ];
 const FIRST_RETRY_MS = 1_000;
 const MAX_RETRY_MS = 30_000;

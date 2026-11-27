@@ -1,7 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { RecordingState, ServerEvent } from "../api/events";
 import type { LiveSnapshot } from "../api/liveTypes";
-import type { RecordingButtonState, SystemStatus } from "../api/types";
+import type { RecordingButtonState, SessionDTO, SystemStatus } from "../api/types";
 import { liveKeys } from "../features/live/api";
 import { invalidateSession, keys } from "../features/sessions/api";
 import { settingsKeys } from "../features/settings/api";
@@ -101,6 +101,12 @@ export function applyEvent(client: QueryClient, event: ServerEvent, resync: bool
       return;
     case "settings":
       void client.invalidateQueries({ queryKey: settingsKeys.settings });
+      return;
+    case "progress":
+      // Written in place: a refetch four times a second would be wasteful.
+      client.setQueryData<SessionDTO>(keys.session(event.sessionID), (session) =>
+        session && session.status === "transcribing" ? { ...session, progress: event.value } : session,
+      );
       return;
   }
 }

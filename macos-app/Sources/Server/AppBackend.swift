@@ -36,6 +36,12 @@ protocol AppBackend: SettingsBackend {
     func liveDocument(id: String) async throws -> ConversationDocument?
     func revealInFinder(id: String) async throws
     func systemStatus() async -> SystemStatus
+    /// Saves the given fields in one step (the values are already validated); throws `.notFound`.
+    func updateDetails(id: String, _ change: SessionDetailsChange) async throws
+    /// Opens the session's Markdown note with the default app (main actor); throws `.notFound`.
+    func openNote(id: String) async throws
+    /// 0…1 while the session transcribes, nil otherwise.
+    func transcriptionProgress(id: String) async -> Double?
 
     // MARK: Events, recording and the live view
 
@@ -185,4 +191,11 @@ enum SessionFiles {
         guard let path, !path.isEmpty else { return false }
         return FileManager.default.fileExists(atPath: path)
     }
+}
+
+/// The detail fields a client may edit; `nil` leaves a field as it is.
+struct SessionDetailsChange: Sendable, Equatable {
+    var recordingType: String?
+    var language: String?
+    var notesLanguage: String?
 }

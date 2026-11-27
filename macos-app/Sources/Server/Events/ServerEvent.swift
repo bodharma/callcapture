@@ -16,6 +16,7 @@ import os
 /// | `sessionChanged` | `{id}` | any session record change; API rename, vault, delete, re-process |
 /// | `catalog` | `{}` | catalog refresh started, finished or failed |
 /// | `settings` | `{}` | settings, secrets or model downloads changed |
+/// | `progress` | `{sessionID, value}` | transcription progress, 0…1 (≤ 4/s) |
 enum ServerEvent: Sendable, Equatable {
     /// First frame of every connection, so a reconnecting page resyncs.
     case hello(SystemStatus)
@@ -30,6 +31,7 @@ enum ServerEvent: Sendable, Equatable {
     case sessionChanged(id: String)
     case catalog
     case settings
+    case progress(sessionID: String, value: Double)
 
     /// The SSE `event:` name the web client listens for.
     var name: String {
@@ -44,6 +46,7 @@ enum ServerEvent: Sendable, Equatable {
         case .sessionChanged: "sessionChanged"
         case .catalog: "catalog"
         case .settings: "settings"
+        case .progress: "progress"
         }
     }
 
@@ -74,7 +77,14 @@ enum ServerEvent: Sendable, Equatable {
             try encoder.encode(["id": id])
         case .catalog, .settings:
             Data("{}".utf8)
+        case .progress(let sessionID, let value):
+            try encoder.encode(ProgressPayload(sessionID: sessionID, value: value))
         }
+    }
+
+    private struct ProgressPayload: Encodable {
+        let sessionID: String
+        let value: Double
     }
 
     private struct Hello: Encodable {

@@ -33,8 +33,11 @@ struct SessionDTO: Encodable {
     let hasNote: Bool
     let hasAnalysis: Bool
     let hasLiveMap: Bool
+    /// 0…1 while the session transcribes; omitted otherwise.
+    let progress: Double?
 
-    init(_ session: Session) {
+    init(_ session: Session, progress: Double? = nil) {
+        self.progress = progress
         id = session.id
         title = session.title
         sourceApp = session.sourceApp

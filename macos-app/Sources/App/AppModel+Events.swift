@@ -30,6 +30,11 @@ extension AppModel {
             ChangeWatcher(read: { liveMeeting.isPreparing }) { [weak self] preparing in
                 self?.recordingStateDidChange(livePreparing: preparing)
             },
+            ProgressEventWatcher(
+                isActive: { [weak self] in self?.state == .transcribing },
+                progress: { [weak self] in self?.pythonBridge.progress ?? 0 },
+                sessionID: { sessions.allSessions().first { $0.status == "transcribing" }?.id },
+                post: { hub.post($0) }),
             LiveEventWatcher(
                 model: { liveMeeting.model },
                 extra: { [weak self] in

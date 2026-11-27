@@ -28,6 +28,18 @@ const note = [
   "- [ ] Draft the release notes",
 ].join("\n");
 
+const options = {
+  recordingTypes: [
+    { value: "call_meeting", label: "Call / Meeting" },
+    { value: "lecture", label: "Lecture" },
+  ],
+  languages: [
+    { value: "auto", label: "Auto-detect" },
+    { value: "en", label: "English" },
+    { value: "uk", label: "Ukrainian" },
+  ],
+};
+
 function api(session: SessionDTO = sessionFixture(), extra: Record<string, RouteValue> = {}) {
   return mockApi({
     "/api/system": { online: true, recording: false, version: "1.0", recordingState: "idle", button: { action: "start", enabled: true } },
@@ -44,6 +56,7 @@ function api(session: SessionDTO = sessionFixture(), extra: Record<string, Route
     [`/api/sessions/${session.id}/markers`]: [
       { id: "m1", time: 522, kind: "decision", text: "Ship Friday if staging is green." },
     ],
+    "/api/sessions/options": options,
     ...extra,
   });
 }
@@ -266,5 +279,99 @@ describe("SessionDetail", () => {
     renderAt("/sessions/S1");
     expect(await screen.findByText("Speaker separation was skipped.")).toBeTruthy();
     expect(screen.getByText(/Worker crashed/)).toBeTruthy();
+  });
+});
+
+describe("SessionDetail: edit, open the note, progress", () => {
+  it("shows the source app and the app's choices in labelled selects", async () => {
+    api();
+    renderAt("/sessions/S1");
+    expect(await screen.findByText("Zoom")).toBeTruthy();
+    const speech = (await screen.findByLabelText("Speech")) as HTMLSelectElement;
+    expect(speech.tagName).toBe("SELECT");
+    expect(speech.value).toBe("uk");
+    expect(within(speech).getByRole("option", { name: "Auto-detect" })).toBeTruthy();
+    expect((screen.getByLabelText("Type") as HTMLSelectElement).value).toBe("call_meeting");
+    expect((screen.getByLabelText("Notes") as HTMLSelectElement).value).toBe("en");
+  });
+
+  it("saves a changed field at once and shows the server's value", async () => {
+    let record = sessionFixture();
+    const fetchFn = api(record, {
+      "PATCH /api/sessions/S1": (init) => {
+        record = { ...record, ...JSON.parse(String(init?.body)), notesLanguage: "uk" };
+        return record;
+      },
+    });
+    renderAt("/sessions/S1");
+    const select = (await screen.findByLabelText("Type")) as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "lecture" } });
+    await waitFor(() => expect(calls(fetchFn)).toContain("PATCH /api/sessions/S1"));
+    const patch = fetchFn.mock.calls.find(([, init]) => init?.method === "PATCH")?.[1];
+    expect(JSON.parse(String(patch?.body))).toEqual({ recordingType: "lecture" });
+    await waitFor(() => expect((screen.getByLabelText("Type") as HTMLSelectElement).value).toBe("lecture"));
+    // The server's answer wins over what was picked.
+    expect((screen.getByLabelText("Notes") as HTMLSelectElement).value).toBe("uk");
+  });
+
+  it("goes back to the saved value and says why when saving fails", async () => {
+    api(sessionFixture(), {
+      "PATCH /api/sessions/S1": { status: 400, body: { error: "invalid", message: "That isn't a value CallCapture knows for language." } },
+    });
+    renderAt("/sessions/S1");
+    const select = (await screen.findByLabelText("Speech")) as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "en" } });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn't change the speech language.");
+    expect(alert.textContent).toContain("That isn't a value CallCapture knows for language.");
+    expect((screen.getByLabelText("Speech") as HTMLSelectElement).value).toBe("uk");
+  });
+
+  it("offers Open note only when the session has a note file", async () => {
+    const fetchFn = api(sessionFixture(), { "POST /api/sessions/S1/open-note": { status: 204 } });
+    renderAt("/sessions/S1");
+    fireEvent.click(await screen.findByRole("button", { name: "Open note" }));
+    await waitFor(() => expect(calls(fetchFn)).toContain("POST /api/sessions/S1/open-note"));
+  });
+
+  it("hides Open note without a note file", async () => {
+    api(sessionFixture({ hasNote: false }));
+    renderAt("/sessions/S1");
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("button", { name: "Open note" })).toBeNull();
+  });
+
+  it("says so when the note file can't be opened", async () => {
+    api(sessionFixture(), {
+      "POST /api/sessions/S1/open-note": {
+        status: 404,
+        body: { error: "no_note", message: "This session has no Markdown note yet." },
+      },
+    });
+    renderAt("/sessions/S1");
+    fireEvent.click(await screen.findByRole("button", { name: "Open note" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("This session has no Markdown note yet.");
+  });
+
+  it("shows a progress bar while transcribing, follows events and hides when it is done", async () => {
+    let record = sessionFixture({ status: "transcribing", progress: 0.2, hasNote: false, hasAnalysis: false });
+    api(record, { "/api/sessions/S1": () => record });
+    renderAt("/sessions/S1");
+    const bar = await screen.findByRole("progressbar", { name: "Transcription progress" });
+    expect(bar.getAttribute("aria-valuenow")).toBe("20");
+    act(() => FakeEventSource.latest().emit("progress", { sessionID: "S1", value: 0.65 }));
+    await waitFor(() =>
+      expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("65"),
+    );
+    record = { ...record, status: "transcribed", progress: undefined };
+    act(() => FakeEventSource.latest().emit("sessionChanged", { id: "S1" }));
+    await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull());
+  });
+
+  it("shows no progress bar for a finished session", async () => {
+    api();
+    renderAt("/sessions/S1");
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("progressbar")).toBeNull();
   });
 });

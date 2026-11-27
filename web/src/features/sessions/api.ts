@@ -4,7 +4,9 @@ import type {
   AnalysisDTO,
   NoteDTO,
   SearchHit,
+  SessionDetailsPatch,
   SessionDTO,
+  SessionOptions,
   SpeakerDTO,
   SystemStatus,
   TapeMarker,
@@ -14,6 +16,7 @@ import type {
 /** Query keys. Everything about one session sits under ["session", id] so it can be invalidated at once. */
 export const keys = {
   system: ["system"] as const,
+  options: ["session-options"] as const,
   sessions: ["sessions"] as const,
   search: (query: string) => ["search", query] as const,
   session: (id: string) => ["session", id] as const,
@@ -151,4 +154,30 @@ export function useRenameSpeaker(id: string) {
         client.invalidateQueries({ queryKey: ["search"] }),
       ]),
   });
+}
+
+/** The choices for type and languages; they come from the app and don't change while it runs. */
+export function useSessionOptions() {
+  return useQuery({
+    queryKey: keys.options,
+    queryFn: () => apiGet<SessionOptions>("/api/sessions/options"),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+/** Saves type or languages at once; the answer is the updated record. */
+export function useUpdateDetails(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: SessionDetailsPatch) => apiSend<SessionDTO>("PATCH", sessionPath(id), patch),
+    onSuccess: (session) => {
+      client.setQueryData<SessionDTO>(keys.session(id), session);
+      void client.invalidateQueries({ queryKey: keys.sessions });
+    },
+    // A failed save leaves the cache as it was, so the field shows the server's value again.
+  });
+}
+
+export function useOpenNote(id: string) {
+  return useMutation({ mutationFn: () => apiSend<void>("POST", `${sessionPath(id)}/open-note`) });
 }

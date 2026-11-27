@@ -9,14 +9,14 @@ import Hummingbird
 /// record, never from the request. Every error is answered as JSON.
 func addSessionsRoutes(to router: Router<BasicRequestContext>, backend: any AppBackend) {
     router.get("api/sessions") { _, _ in
-        APIResponse.json(await backend.sessions().map(SessionDTO.init))
+        APIResponse.json(await backend.sessions().map { SessionDTO($0) })
     }
     router.get("api/search") { request, _ in
         let query = request.uri.queryParameters["q"].map(String.init) ?? ""
         return APIResponse.json(await backend.search(query).map(SearchHitDTO.init))
     }
     router.get("api/sessions/:id") { _, context in
-        await withSession(context, backend) { APIResponse.json(SessionDTO($0)) }
+        await withSession(context, backend) { APIResponse.json(await detailDTO($0, backend)) }
     }
     router.delete("api/sessions/:id") { _, context in
         await withSession(context, backend) { session in
@@ -25,6 +25,7 @@ func addSessionsRoutes(to router: Router<BasicRequestContext>, backend: any AppB
             return APIResponse.noContent()
         }
     }
+    addEditRoutes(to: router, backend: backend)
     addReadRoutes(to: router, backend: backend)
     addSpeakerRoutes(to: router, backend: backend)
     addMediaRoutes(to: router, backend: backend)
@@ -155,8 +156,14 @@ private func addActionRoutes(to router: Router<BasicRequestContext>, backend: an
 
 // MARK: Helpers
 
+/// The record with the live progress while it transcribes.
+func detailDTO(_ session: Session, _ backend: any AppBackend) async -> SessionDTO {
+    let progress = session.status == "transcribing" ? await backend.transcriptionProgress(id: session.id) : nil
+    return SessionDTO(session, progress: progress)
+}
+
 /// Resolves `:id` to a session (404 JSON if unknown) and maps any thrown error to JSON.
-private func withSession(
+func withSession(
     _ context: BasicRequestContext, _ backend: any AppBackend,
     _ handle: (Session) async throws -> Response
 ) async -> Response {

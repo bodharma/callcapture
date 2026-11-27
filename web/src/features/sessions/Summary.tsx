@@ -1,6 +1,8 @@
 import { lazy, Suspense, useId, useState, type ReactNode } from "react";
 import type { AnalysisDTO, MarkerKind, SpeakerDTO, TapeMarker } from "../../api/types";
 import { timecode } from "../../lib/format";
+import { errorText } from "../../api/client";
+import { useOpenNote } from "./api";
 import { usePlayer } from "./player";
 import { SummarySide } from "./SummarySide";
 import "./Summary.css";
@@ -14,6 +16,8 @@ interface SummaryProps {
   note: string | null | undefined;
   markers: TapeMarker[];
   speakers: SpeakerDTO[];
+  /** The session whose Markdown note file can be opened in the default app; absent without a file. */
+  noteSessionId?: string;
 }
 
 /**
@@ -23,7 +27,7 @@ interface SummaryProps {
  * shows the overall tone and who spoke. Decisions, questions and your notes are
  * timed only where the live map recorded them (tape markers).
  */
-export function Summary({ status, analysis, note, markers, speakers }: SummaryProps) {
+export function Summary({ status, analysis, note, markers, speakers, noteSessionId }: SummaryProps) {
   const insights = analysis?.insights;
   const timed = (kind: MarkerKind) => markers.filter((marker) => marker.kind === kind);
   const hasAnything = !!insights?.summary || markers.length > 0 || !!note || !!insights;
@@ -41,7 +45,7 @@ export function Summary({ status, analysis, note, markers, speakers }: SummaryPr
         <TimedList title="Your notes" kind="note" markers={timed("note")} />
         <PlainList title="Key points" items={insights?.keyPoints} />
         <PlainList title="Takeaways" items={insights?.takeaways} />
-        {note && <FullNote markdown={note} />}
+        {note && <FullNote markdown={note} sessionId={noteSessionId} />}
       </div>
       {analysis && <SummarySide analysis={analysis} speakers={speakers} />}
     </div>
@@ -68,22 +72,25 @@ function Block({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /** The vault note, which repeats much of the lists above: closed until asked for. */
-function FullNote({ markdown }: { markdown: string }) {
+function FullNote({ markdown, sessionId }: { markdown: string; sessionId?: string }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   return (
     <section className="block">
-      <h2 className="block-title">
-        <button
-          type="button"
-          className="disclosure"
-          aria-expanded={open}
-          aria-controls={panelId}
-          onClick={() => setOpen((value) => !value)}
-        >
-          Full note
-        </button>
-      </h2>
+      <div className="block-head">
+        <h2 className="block-title">
+          <button
+            type="button"
+            className="disclosure"
+            aria-expanded={open}
+            aria-controls={panelId}
+            onClick={() => setOpen((value) => !value)}
+          >
+            Full note
+          </button>
+        </h2>
+        {sessionId !== undefined && <OpenNote sessionId={sessionId} />}
+      </div>
       <div id={panelId} hidden={!open}>
         {open && (
           <Suspense fallback={<p className="empty">Loading the note…</p>}>
@@ -92,6 +99,23 @@ function FullNote({ markdown }: { markdown: string }) {
         )}
       </div>
     </section>
+  );
+}
+
+/** Opens the note's Markdown file in the app that handles it; a failure is said inline. */
+function OpenNote({ sessionId }: { sessionId: string }) {
+  const open = useOpenNote(sessionId);
+  return (
+    <span className="open-note">
+      <button type="button" className="btn btn--small" disabled={open.isPending} onClick={() => open.mutate()}>
+        Open note
+      </button>
+      {open.isError && (
+        <span className="field-note" role="alert">
+          Couldn't open the note. {errorText(open.error)}
+        </span>
+      )}
+    </span>
   );
 }
 

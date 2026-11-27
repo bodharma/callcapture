@@ -36,7 +36,23 @@ export interface SessionDTO {
   hasNote: boolean;
   hasAnalysis: boolean;
   hasLiveMap: boolean;
+  /** 0 to 1 while the session transcribes; absent otherwise. */
+  progress?: number;
 }
+
+/** One choice for a select; the app sends the values and labels (`GET /api/sessions/options`). */
+export interface SessionOption {
+  value: string;
+  label: string;
+}
+
+export interface SessionOptions {
+  recordingTypes: SessionOption[];
+  languages: SessionOption[];
+}
+
+/** The detail fields a session's owner may edit (`PATCH /api/sessions/:id`). */
+export type SessionDetailsPatch = Partial<Pick<SessionDTO, "recordingType" | "language" | "notesLanguage">>;
 
 export interface SearchHit {
   id: string;

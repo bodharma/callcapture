@@ -3,8 +3,8 @@ import { useEffect } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { ApiError, errorText } from "../../api/client";
 import type { SessionDTO, TranscriptLine } from "../../api/types";
-import { languageName, length, recordedAt, usd } from "../../lib/format";
 import { useSession, useSessionPart, useSystem } from "./api";
+import { DetailFields, TranscribeProgress } from "./DetailFields";
 import { FileActions } from "./FileActions";
 import { Notices } from "./Notices";
 import { PlayerProvider, usePlayer } from "./player";
@@ -99,7 +99,8 @@ function SessionBody({ session, tab, focusTime, recording }: SessionBodyProps) {
       <header className="detail-head">
         <div className="detail-titles">
           <h1 className="detail-title">{session.title}</h1>
-          <Fields session={session} />
+          <DetailFields session={session} />
+          <TranscribeProgress session={session} />
         </div>
         <SessionActions session={session} />
       </header>
@@ -126,6 +127,7 @@ function SessionBody({ session, tab, focusTime, recording }: SessionBodyProps) {
           note={note.data?.markdown}
           markers={markers.data ?? []}
           speakers={speakers.data ?? []}
+          noteSessionId={session.hasNote ? id : undefined}
         />
       )}
       {tab === "transcript" && <TranscriptTab session={session} query={transcript} focusTime={focusTime} />}
@@ -136,23 +138,6 @@ function SessionBody({ session, tab, focusTime, recording }: SessionBodyProps) {
 
       <FileActions session={session} />
     </article>
-  );
-}
-
-function Fields({ session }: { session: SessionDTO }) {
-  const fields: [string, string][] = [["Recorded", recordedAt(new Date(session.startedAt))]];
-  if (session.durationSec !== undefined) fields.push(["Length", length(session.durationSec)]);
-  fields.push(["Speech", languageName(session.language)], ["Notes", languageName(session.notesLanguage)]);
-  if (session.costs.total !== undefined) fields.push(["Cost", usd(session.costs.total)]);
-  return (
-    <dl className="fields">
-      {fields.map(([term, value]) => (
-        <div key={term}>
-          <dt>{term}</dt>
-          <dd>{value}</dd>
-        </div>
-      ))}
-    </dl>
   );
 }
 

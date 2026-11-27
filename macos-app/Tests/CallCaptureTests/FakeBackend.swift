@@ -17,6 +17,8 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     private var reprocessGate: AsyncStream<Void>.Continuation?
     private var reprocessRun: Task<Void, Never>?
     private var deleteFailure: BackendError?
+    private var opened: [String] = []
+    private var progress: [String: Double] = [:]
     private var vaultDirectory: URL?
     private var status = SystemStatus(online: true, recording: false, version: "test")
     private var settingsSide: FakeSettings?
@@ -35,6 +37,8 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     var deletedIDs: [String] { lock.withLock { deleted } }
     var revealedIDs: [String] { lock.withLock { revealed } }
     var reprocessedIDs: [String] { lock.withLock { reprocessed } }
+    var openedNoteIDs: [String] { lock.withLock { opened } }
+    func setProgress(_ value: Double, for id: String) { lock.withLock { progress[id] = value } }
     /// The next re-process cannot start (`BackendError.busy`).
     func refuseReprocess(with reason: String?) { lock.withLock { reprocessRefusal = reason } }
     /// What a released run writes into the session record.
@@ -129,6 +133,24 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     }
 
     func systemStatus() async -> SystemStatus { lock.withLock { status } }
+
+    func updateDetails(id: String, _ change: SessionDetailsChange) async throws {
+        _ = try await requireSession(id)
+        lock.withLock {
+            updateSession(id) {
+                if let value = change.recordingType { $0.recordingType = value }
+                if let value = change.language { $0.language = value }
+                if let value = change.notesLanguage { $0.notesLanguage = value }
+            }
+        }
+    }
+
+    func openNote(id: String) async throws {
+        _ = try await requireSession(id)
+        lock.withLock { opened.append(id) }
+    }
+
+    func transcriptionProgress(id: String) async -> Double? { lock.withLock { progress[id] } }
 
     // MARK: SettingsBackend
 
