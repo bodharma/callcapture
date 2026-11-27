@@ -46,17 +46,19 @@ extension AppModel {
 
     /// Sends `recording` when anything in the recording status changed. Safe from any
     /// thread: the live model flag comes from the mirror the main actor keeps current.
+    /// The event is queued inside the lock (`post` only enqueues and never blocks), so two
+    /// threads can't send their snapshots in the opposite order to the one they took them.
     func recordingStateDidChange(livePreparing: Bool? = nil) {
-        let changed = publishedRecording.withLockUnchecked { box -> RecordingStatus? in
+        let events = self.events
+        publishedRecording.withLockUnchecked { box in
             if let livePreparing { box.livePreparing = livePreparing }
             let status = RecordingStatus.make(
                 state: state, playbackBlocked: playbackBlocked, transition: recordingTransition,
                 livePreparing: box.livePreparing, lastError: lastError)
-            guard status != box.last else { return nil }
+            guard status != box.last else { return }
             box.last = status
-            return status
+            events.post(.recording(status))
         }
-        if let changed { events.post(.recording(changed)) }
     }
 
     /// Changes whenever the catalog, its refresh state or its problem does.
