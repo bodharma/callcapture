@@ -55,13 +55,45 @@ protocol AppBackend: SettingsBackend {
 
 struct SystemStatus: Codable, Equatable, Sendable {
     let online: Bool
-    /// True while capture runs (or is starting/stopping): playback would be recorded.
+    /// True while playback would be recorded: from a start until the tap is surely stopped
+    /// (also after a failed stop, whatever the phase says).
     let recording: Bool
     let version: String
     /// `RecordingPhase` raw value: idle, starting, recording, stopping or processing.
     var recordingState: String = RecordingPhase.idle.rawValue
+    /// The Record/Stop button as the menu shows it.
+    var button = RecordingButtonDTO.record
     /// Why the last recording start or stop failed, as the menu shows it.
     var problem: String? = nil
+}
+
+extension SystemStatus {
+    init(online: Bool, version: String, recordingStatus: RecordingStatus) {
+        self.init(
+            online: online, recording: recordingStatus.playbackBlocked, version: version,
+            recordingState: recordingStatus.phase.rawValue, button: RecordingButtonDTO(recordingStatus.button),
+            problem: recordingStatus.problem)
+    }
+}
+
+/// `{"action": "start" | "stop", "enabled": Bool, "reason"?: String}`: the web renders
+/// this as it is, so its button can't disagree with the menu's.
+struct RecordingButtonDTO: Codable, Equatable, Sendable {
+    let action: String
+    let enabled: Bool
+    var reason: String? = nil
+
+    static let record = RecordingButtonDTO(action: "start", enabled: true)
+
+    init(action: String, enabled: Bool, reason: String? = nil) {
+        self.action = action
+        self.enabled = enabled
+        self.reason = reason
+    }
+
+    init(_ button: RecordingButton) {
+        self.init(action: button.action == .stopping ? "stop" : "start", enabled: button.enabled, reason: button.reason)
+    }
 }
 
 enum BackendError: Error, Equatable {

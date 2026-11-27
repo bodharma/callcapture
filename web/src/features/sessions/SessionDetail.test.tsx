@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SessionDTO } from "../../api/types";
 import { calls, mockApi, type RouteValue } from "../../test/api";
 import { FakeEventSource } from "../../test/fakeEventSource";
+import { recordingEvent } from "../../test/liveFixtures";
 import { analysisFixture, sessionFixture, transcriptFixture } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 
@@ -29,7 +30,7 @@ const note = [
 
 function api(session: SessionDTO = sessionFixture(), extra: Record<string, RouteValue> = {}) {
   return mockApi({
-    "/api/system": { online: true, recording: false, version: "1.0" },
+    "/api/system": { online: true, recording: false, version: "1.0", recordingState: "idle", button: { action: "start", enabled: true } },
     "/api/sessions": [session],
     [`/api/sessions/${session.id}`]: session,
     [`/api/sessions/${session.id}/transcript`]: transcriptFixture,
@@ -216,9 +217,31 @@ describe("SessionDetail", () => {
     fireEvent.click(play);
     const audio = container.querySelector("audio") as HTMLAudioElement;
     expect(audio.play).toHaveBeenCalled();
-    act(() => FakeEventSource.latest().emit("recording", { state: "starting" }));
+    act(() =>
+      FakeEventSource.latest().emit("recording", recordingEvent("starting", true, { action: "start", enabled: false })),
+    );
     expect(await screen.findByText("Playback is off while recording")).toBeTruthy();
     expect(audio.pause).toHaveBeenCalled();
+  });
+
+  it("keeps playback off after a failed stop, while the app still reports the block", async () => {
+    api();
+    renderAt("/sessions/S1");
+    await screen.findByRole("button", { name: "Play" });
+    act(() =>
+      FakeEventSource.latest().emit("recording", recordingEvent("starting", true, { action: "start", enabled: false })),
+    );
+    expect(await screen.findByText("Playback is off while recording")).toBeTruthy();
+    // The stop failed: the phase is idle and the menu offers Record, but the tap may still run.
+    act(() =>
+      FakeEventSource.latest().emit("recording", {
+        ...recordingEvent("idle", true, { action: "start", enabled: true }),
+        problem: "The capture didn't stop.",
+      }),
+    );
+    expect(await screen.findByRole("button", { name: "Record" })).toBeTruthy();
+    expect(screen.getByText("Playback is off while recording")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Play" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("doesn't poll the session or the recording state", async () => {

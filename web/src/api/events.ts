@@ -1,14 +1,22 @@
 import { useSyncExternalStore } from "react";
 import { apiGet, SignInRequired } from "./client";
 import type { LiveNotesUsage, LiveSource, LiveTurn } from "./liveTypes";
+import type { RecordingButtonState } from "./types";
 
-/** The app's recording phase; playback stays off from `starting` through `stopping`. */
+/** The app's recording phase, from its state and any start or stop in progress. */
 export type RecordingState = "idle" | "starting" | "recording" | "stopping" | "processing";
+
+interface RecordingFields {
+  /** Playback would be recorded (reported on its own: true after a failed stop too). */
+  blocked: boolean;
+  button: RecordingButtonState;
+  problem?: string;
+}
 
 /** One frame of `GET /api/events`, by its SSE event name (see the Swift `ServerEvent`). */
 export type ServerEvent =
-  | { type: "hello"; recording: RecordingState; online: boolean; problem?: string }
-  | { type: "recording"; state: RecordingState; problem?: string }
+  | ({ type: "hello"; recording: RecordingState; online: boolean } & RecordingFields)
+  | ({ type: "recording"; state: RecordingState } & RecordingFields)
   | { type: "liveDocument"; sessionID: string }
   | { type: "liveTurn"; turn: LiveTurn }
   | { type: "partial"; source: LiveSource; text: string }
@@ -182,9 +190,4 @@ export function onConnectionChange(listener: () => void): () => void {
 /** The shared connection's state, for the small status text in the top bar. */
 export function useConnection(): Connection {
   return useSyncExternalStore(onConnectionChange, getConnection, getConnection);
-}
-
-/** True while session playback would be recorded by the system tap. */
-export function blocksPlayback(state: RecordingState | undefined): boolean {
-  return state === "starting" || state === "recording" || state === "stopping";
 }

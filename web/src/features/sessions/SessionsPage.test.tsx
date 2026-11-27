@@ -9,7 +9,7 @@ vi.mock("wavesurfer.js", () => ({
   default: { create: vi.fn(() => ({ destroy: vi.fn(), on: vi.fn(() => () => {}) })) },
 }));
 
-const system = { online: true, recording: false, version: "1.0" };
+const system = { online: true, recording: false, version: "1.0", recordingState: "idle", button: { action: "start", enabled: true } };
 
 describe("SessionsPage", () => {
   it("renders SignInAgain when the server answers SignInRequired", async () => {
@@ -78,7 +78,9 @@ describe("SessionsPage", () => {
     renderAt("/sessions");
     expect(await screen.findByText("Nothing recorded yet. Record a call from the menu bar.")).toBeTruthy();
     recording = true;
-    act(() => FakeEventSource.latest().emit("recording", { state: "recording" }));
+    act(() =>
+      FakeEventSource.latest().emit("recording", { state: "recording", blocked: true, button: { action: "stop", enabled: true } }),
+    );
     const list = screen.getByRole("navigation", { name: "Sessions" });
     expect(await within(list).findByRole("link", { name: /Standup/ })).toBeTruthy();
     expect(await screen.findByText("REC")).toBeTruthy();

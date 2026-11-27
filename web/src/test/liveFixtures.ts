@@ -63,5 +63,18 @@ export function liveFixture(overrides: Partial<LiveSnapshot> = {}): LiveSnapshot
   };
 }
 
-export const systemIdle = { online: true, recording: false, version: "1.0", recordingState: "idle" };
-export const systemRecording = { online: true, recording: true, version: "1.0", recordingState: "recording" };
+export const recordButton = { action: "start", enabled: true } as const;
+export const stopButton = { action: "stop", enabled: true } as const;
+export const systemIdle = { online: true, recording: false, version: "1.0", recordingState: "idle", button: recordButton };
+export const systemRecording = {
+  online: true,
+  recording: true,
+  version: "1.0",
+  recordingState: "recording",
+  button: stopButton,
+};
+
+/** A `recording` event payload; `blocked` is whether playback would be recorded. */
+export function recordingEvent(state: string, blocked: boolean, button: { action: string; enabled: boolean; reason?: string }) {
+  return { state, blocked, button };
+}

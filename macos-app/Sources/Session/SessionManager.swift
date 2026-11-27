@@ -220,6 +220,18 @@ final class SessionManager {
         }
     }
 
+    /// The id of the session recorded into `audioPath`, if any.
+    func sessionID(audioPath: String) -> String? {
+        do {
+            return try database.dbPool.read { db in
+                try SessionRecord.filter(Column("audio_path") == audioPath).fetchOne(db)?.id
+            }
+        } catch {
+            Self.logger.error("Failed to look up the session for an audio file: \(error)")
+            return nil
+        }
+    }
+
     /// Returns a single session by its identifier.
     ///
     /// - Parameter id: The session identifier.

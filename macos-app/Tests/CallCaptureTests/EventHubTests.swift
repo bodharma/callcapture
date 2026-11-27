@@ -67,7 +67,11 @@ final class CollectingWriter: ResponseBodyWriter, @unchecked Sendable {
 
     @Test func helloFirstCarriesRecordingAndOnline() async throws {
         let api = SignedInAPI()
-        api.backend.setStatus(SystemStatus(online: false, recording: true, version: "test", recordingState: "recording"))
+        api.backend.setStatus(
+            SystemStatus(
+                online: false, version: "test",
+                recordingStatus: RecordingStatus.make(
+                    state: .recording, playbackBlocked: true, transition: nil, livePreparing: false, lastError: nil)))
         let hub = api.backend.events
         try await api.run { client in
             async let response = api.request(client, "/api/events")
@@ -75,7 +79,10 @@ final class CollectingWriter: ResponseBodyWriter, @unchecked Sendable {
             await hub.finishAll()
             let text = bodyText(try await response)
             #expect(text.hasPrefix("event: hello\n"), "\(text)")
-            #expect(text.contains(#"data: {"online":false,"recording":"recording"}"#), "\(text)")
+            #expect(
+                text.contains(
+                    #"data: {"blocked":true,"button":{"action":"stop","enabled":true},"online":false,"recording":"recording"}"#),
+                "\(text)")
         }
     }
 
@@ -169,7 +176,12 @@ final class CollectingWriter: ResponseBodyWriter, @unchecked Sendable {
         #expect(frame.hasPrefix("event: liveTurn\ndata: {"))
         #expect(frame.hasSuffix("}\n\n"))
         #expect(frame.dropLast(2).components(separatedBy: "\n").count == 2, "a raw newline would split the frame")
-        #expect(SSEFrame.encode(.recording(state: "starting")) == "event: recording\ndata: {\"state\":\"starting\"}\n\n")
+        let starting = RecordingStatus.make(
+            state: .idle, playbackBlocked: false, transition: .starting, livePreparing: false, lastError: nil)
+        #expect(
+            SSEFrame.encode(.recording(starting))
+                == #"event: recording"# + "\n"
+                + #"data: {"blocked":true,"button":{"action":"start","enabled":false},"state":"starting"}"# + "\n\n")
         #expect(SSEFrame.encode(.partial(source: "system", text: "hi")) ==
             "event: partial\ndata: {\"source\":\"system\",\"text\":\"hi\"}\n\n")
         #expect(SSEFrame.encode(.connectivity(online: false)) == "event: connectivity\ndata: {\"online\":false}\n\n")

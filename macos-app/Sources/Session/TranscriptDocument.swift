@@ -106,6 +106,8 @@ struct SpeakerNames: Codable, Equatable, Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(names).write(to: URL(fileURLWithPath: Self.sidecarPath(audioPath: audioPath)),
                                         options: .atomic)
+        // Every rename (web, native window) goes through here, so open pages hear about it.
+        ModelFileEvents.notify(.speakerNames(audioPath: audioPath))
     }
 
     init(from decoder: Decoder) throws {

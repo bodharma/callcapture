@@ -1,15 +1,21 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { blocksPlayback, type RecordingState, type ServerEvent } from "../api/events";
+import type { RecordingState, ServerEvent } from "../api/events";
 import type { LiveSnapshot } from "../api/liveTypes";
-import type { SystemStatus } from "../api/types";
+import type { RecordingButtonState, SystemStatus } from "../api/types";
 import { liveKeys } from "../features/live/api";
 import { invalidateSession, keys } from "../features/sessions/api";
 import { settingsKeys } from "../features/settings/api";
 
+interface RecordingChange {
+  recordingState: RecordingState;
+  blocked: boolean;
+  button: RecordingButtonState;
+  problem?: string;
+}
+
 interface SystemChange {
   online?: boolean;
-  recordingState?: RecordingState;
-  problem?: string;
+  recording?: RecordingChange;
 }
 
 /** Writes event state into the cached `/api/system` answer; fetches it if none is cached yet. */
@@ -19,12 +25,17 @@ function updateSystem(client: QueryClient, change: SystemChange) {
     void client.invalidateQueries({ queryKey: keys.system });
     return;
   }
-  const next: SystemStatus = { ...current, online: change.online ?? current.online };
-  if (change.recordingState !== undefined) {
-    next.recordingState = change.recordingState;
-    next.recording = blocksPlayback(change.recordingState);
-    next.problem = change.problem;
-  }
+  const recording = change.recording;
+  const next: SystemStatus = recording
+    ? {
+        ...current,
+        recording: recording.blocked,
+        recordingState: recording.recordingState,
+        button: recording.button,
+        problem: recording.problem,
+      }
+    : { ...current };
+  if (change.online !== undefined) next.online = change.online;
   client.setQueryData<SystemStatus>(keys.system, next);
 }
 
@@ -43,11 +54,16 @@ function updateLive(client: QueryClient, change: (live: LiveSnapshot) => LiveSna
 export function applyEvent(client: QueryClient, event: ServerEvent, resync: boolean) {
   switch (event.type) {
     case "hello":
-      updateSystem(client, { online: event.online, recordingState: event.recording, problem: event.problem });
+      updateSystem(client, {
+        online: event.online,
+        recording: { recordingState: event.recording, blocked: event.blocked, button: event.button, problem: event.problem },
+      });
       if (resync) void client.invalidateQueries();
       return;
     case "recording":
-      updateSystem(client, { recordingState: event.state, problem: event.problem });
+      updateSystem(client, {
+        recording: { recordingState: event.state, blocked: event.blocked, button: event.button, problem: event.problem },
+      });
       // A start adds a row and a stop finalizes it.
       void client.invalidateQueries({ queryKey: keys.sessions });
       return;

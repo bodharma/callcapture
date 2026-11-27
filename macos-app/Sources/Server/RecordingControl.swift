@@ -10,30 +10,67 @@ enum RecordingTransition: String, Sendable {
 enum RecordingPhase: String, Sendable {
     case idle, starting, recording, stopping, processing
 
-    static func derive(state: AppState, playbackBlocked: Bool, transition: RecordingTransition?) -> RecordingPhase {
+    static func derive(state: AppState, transition: RecordingTransition?) -> RecordingPhase {
         switch transition {
         case .starting: return .starting
         case .stopping: return .stopping
         case nil: break
         }
-        // A failed stop keeps playback blocked: the system tap may still be recording.
-        if state == .recording || playbackBlocked { return .recording }
-        return state == .transcribing ? .processing : .idle
-    }
-
-    /// The system tap records everything the Mac plays, so session playback stays off
-    /// from the moment a start begins until the stop has finished.
-    var blocksPlayback: Bool {
-        switch self {
-        case .starting, .recording, .stopping: true
-        case .idle, .processing: false
+        switch state {
+        case .recording: return .recording
+        case .transcribing: return .processing
+        case .idle, .error: return .idle
         }
     }
 }
 
-/// Why a recording start or stop can't happen now. Mirrors what disables the menu's
-/// Record button, so the menu and the web UI refuse the same things.
-enum RecordingRequestError: Error, Equatable {
+/// The Record/Stop button: what pressing it does, and why it can't be pressed now.
+struct RecordingButton: Equatable, Sendable {
+    let action: RecordingTransition
+    let refusal: RecordingRequestError?
+
+    var enabled: Bool { refusal == nil }
+
+    /// Shown under a disabled button; a start or stop in progress speaks for itself.
+    var reason: String? {
+        guard let refusal else { return nil }
+        if case .inTransition = refusal { return nil }
+        return refusal.message
+    }
+
+    static func current(state: AppState, transition: RecordingTransition?, livePreparing: Bool) -> RecordingButton {
+        let action: RecordingTransition = state == .recording ? .stopping : .starting
+        return RecordingButton(
+            action: action,
+            refusal: RecordingRequestError.check(action, state: state, transition: transition, livePreparing: livePreparing))
+    }
+}
+
+/// Everything the API reports about recording, in one value.
+struct RecordingStatus: Equatable, Sendable {
+    let phase: RecordingPhase
+    let playbackBlocked: Bool
+    let button: RecordingButton
+    let problem: String?
+
+    /// The phase and the button follow `state` and the transition, as the menu does; the
+    /// playback block is reported on its own, so a failed stop (tap maybe still running)
+    /// keeps playback off without pretending a recording can be stopped.
+    static func make(
+        state: AppState, playbackBlocked: Bool, transition: RecordingTransition?, livePreparing: Bool,
+        lastError: String?
+    ) -> RecordingStatus {
+        RecordingStatus(
+            phase: RecordingPhase.derive(state: state, transition: transition),
+            playbackBlocked: state == .recording || playbackBlocked || transition != nil,
+            button: RecordingButton.current(state: state, transition: transition, livePreparing: livePreparing),
+            problem: state == .error ? lastError : nil)
+    }
+}
+
+/// Why a recording start or stop can't happen now. The menu's Record button and the
+/// web's are both `RecordingButton.current`, which asks this, so they refuse the same things.
+enum RecordingRequestError: Error, Equatable, Sendable {
     case alreadyRecording
     case notRecording
     case processing
@@ -51,7 +88,9 @@ enum RecordingRequestError: Error, Equatable {
             if livePreparing { return .livePreparing }
             return nil
         case .stopping:
-            return state == .recording ? nil : .notRecording
+            guard state == .recording else { return .notRecording }
+            // The menu disables its whole button while the live model downloads.
+            return livePreparing ? .livePreparing : nil
         }
     }
 

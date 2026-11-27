@@ -6,8 +6,8 @@ import os
 ///
 /// | Event | Payload | Source |
 /// |---|---|---|
-/// | `hello` | `{online, recording, problem?}` | first frame of every connection |
-/// | `recording` | `{state, problem?}` | `AppModel` state, transition, playback block, last error |
+/// | `hello` | `{online, recording, blocked, button, problem?}` | first frame of every connection |
+/// | `recording` | `{state, blocked, button, problem?}` | `AppModel` state, transition, playback block, live model download, last error |
 /// | `liveDocument` | `{sessionID}` | live map or runtime change (≤ 4/s) |
 /// | `liveTurn` | `LiveTurn` | each committed live turn |
 /// | `partial` | `{source, text}` | partial live speech (≤ 4/s per channel) |
@@ -18,9 +18,10 @@ import os
 /// | `settings` | `{}` | settings, secrets or model downloads changed |
 enum ServerEvent: Sendable, Equatable {
     /// First frame of every connection, so a reconnecting page resyncs.
-    case hello(recording: String, online: Bool, problem: String? = nil)
-    /// `RecordingPhase` raw value; `problem` is why the last start or stop failed.
-    case recording(state: String, problem: String? = nil)
+    case hello(SystemStatus)
+    /// The phase (from state and transition only), whether playback would be recorded,
+    /// the Record/Stop button exactly as the menu shows it, and the last failure.
+    case recording(RecordingStatus)
     case liveDocument(sessionID: String)
     case liveTurn(LiveTurn)
     case partial(source: String, text: String)
@@ -49,10 +50,16 @@ enum ServerEvent: Sendable, Equatable {
     /// The `data:` JSON object.
     fileprivate func payload(_ encoder: JSONEncoder) throws -> Data {
         switch self {
-        case .hello(let recording, let online, let problem):
-            try encoder.encode(Hello(online: online, recording: recording, problem: problem))
-        case .recording(let state, let problem):
-            try encoder.encode(Recording(state: state, problem: problem))
+        case .hello(let status):
+            try encoder.encode(
+                Hello(
+                    online: status.online, recording: status.recordingState, blocked: status.recording,
+                    button: status.button, problem: status.problem))
+        case .recording(let status):
+            try encoder.encode(
+                Recording(
+                    state: status.phase.rawValue, blocked: status.playbackBlocked,
+                    button: RecordingButtonDTO(status.button), problem: status.problem))
         case .liveDocument(let sessionID):
             try encoder.encode(["sessionID": sessionID])
         case .liveTurn(let turn):
@@ -73,11 +80,15 @@ enum ServerEvent: Sendable, Equatable {
     private struct Hello: Encodable {
         let online: Bool
         let recording: String
+        let blocked: Bool
+        let button: RecordingButtonDTO
         let problem: String?
     }
 
     private struct Recording: Encodable {
         let state: String
+        let blocked: Bool
+        let button: RecordingButtonDTO
         let problem: String?
     }
 }

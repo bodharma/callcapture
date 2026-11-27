@@ -1,29 +1,35 @@
 import Foundation
 
 /// Where `AppModel` feeds the web UI's events stream:
-/// - recording phase and its problem: `didSet` on `state`, `playbackBlocked`,
-///   `recordingTransition` and `lastError` (some are set off the main actor);
+/// - recording status: `didSet` on `state`, `playbackBlocked`, `recordingTransition` and
+///   `lastError` (some are set off the main actor), plus the live model download flag;
 /// - session records: `SessionManager.onSessionChange` (every create/update/delete);
-/// - connectivity and the catalog: observed main-actor state;
+/// - speaker names and saved live maps edited in any window: `ModelFileEvents`;
+/// - connectivity, the catalog and settings (any window, the menu): observed main-actor state;
 /// - the live meeting: `LiveEventWatcher` over the controller's current model.
 @available(macOS 14.2, *)
 extension AppModel {
-    /// The recording state the API reports (`GET /api/system`, `hello`, `recording`).
-    var recordingPhase: RecordingPhase {
-        RecordingPhase.derive(state: state, playbackBlocked: playbackBlocked, transition: recordingTransition)
+    /// The recording status the API reports (`GET /api/system`, `hello`).
+    @MainActor var recordingStatus: RecordingStatus {
+        RecordingStatus.make(
+            state: state, playbackBlocked: playbackBlocked, transition: recordingTransition,
+            livePreparing: liveMeeting.isPreparing, lastError: lastError)
     }
-
-    /// Why the last start, stop or run failed, while the app shows it as an error.
-    var recordingProblem: String? { state == .error ? lastError : nil }
 
     @MainActor func startPublishingEvents() {
         let hub = events
         sessionManager.onSessionChange = { id in hub.post(.sessionChanged(id: id)) }
         let connectivity = self.connectivity
         let liveMeeting = self.liveMeeting
+        let sessions = sessionManager
+        ModelFileEvents.forward(to: hub) { audioPath in sessions.sessionID(audioPath: audioPath) }
         eventWatchers = [
             ChangeWatcher(read: { connectivity.isOnline }) { hub.post(.connectivity(online: $0)) },
             ChangeWatcher(read: { [weak self] in self?.catalogToken ?? "" }) { _ in hub.post(.catalog) },
+            NativeChangeSources.settings(settingsManager, post: { hub.post($0) }),
+            ChangeWatcher(read: { liveMeeting.isPreparing }) { [weak self] preparing in
+                self?.recordingStateDidChange(livePreparing: preparing)
+            },
             LiveEventWatcher(
                 model: { liveMeeting.model },
                 extra: { [weak self] in
@@ -33,17 +39,19 @@ extension AppModel {
         ]
     }
 
-    /// Sends `recording` when the phase or its problem changed. Safe from any thread.
-    func recordingStateDidChange() {
-        let phase = recordingPhase
-        let problem = recordingProblem
-        let key = phase.rawValue + "\u{1F}" + (problem ?? "")
-        let changed = publishedRecording.withLock { last -> Bool in
-            guard last != key else { return false }
-            last = key
-            return true
+    /// Sends `recording` when anything in the recording status changed. Safe from any
+    /// thread: the live model flag comes from the mirror the main actor keeps current.
+    func recordingStateDidChange(livePreparing: Bool? = nil) {
+        let changed = publishedRecording.withLockUnchecked { box -> RecordingStatus? in
+            if let livePreparing { box.livePreparing = livePreparing }
+            let status = RecordingStatus.make(
+                state: state, playbackBlocked: playbackBlocked, transition: recordingTransition,
+                livePreparing: box.livePreparing, lastError: lastError)
+            guard status != box.last else { return nil }
+            box.last = status
+            return status
         }
-        if changed { events.post(.recording(state: phase.rawValue, problem: problem)) }
+        if let changed { events.post(.recording(changed)) }
     }
 
     /// Changes whenever the catalog, its refresh state or its problem does.
@@ -51,4 +59,10 @@ extension AppModel {
         let fetched = catalogSnapshot.map { "\($0.modelsFetchedAt.timeIntervalSince1970)|\($0.scoresFetchedAt?.timeIntervalSince1970 ?? 0)|\($0.models.count)" } ?? "none"
         return "\(fetched)|\(catalogRefreshing)|\(catalogProblem ?? "")"
     }
+}
+
+/// What `recordingStateDidChange` remembers between calls.
+struct RecordingPublication {
+    var livePreparing = false
+    var last: RecordingStatus?
 }

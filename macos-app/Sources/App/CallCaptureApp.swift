@@ -81,9 +81,10 @@ final class AppModel {
     /// Keeps the observers behind the events alive.
     @ObservationIgnored
     var eventWatchers: [AnyObject] = []
-    /// The last `recording` event sent, so repeated assignments don't repeat it.
+    /// The last `recording` event sent (so repeated assignments don't repeat it) and the
+    /// live model download flag it includes, mirrored from the main actor.
     @ObservationIgnored
-    let publishedRecording = OSAllocatedUnfairLock(initialState: "")
+    let publishedRecording = OSAllocatedUnfairLock(initialState: RecordingPublication())
 
     @ObservationIgnored
     private var archiveWindowController: WebWindowController?

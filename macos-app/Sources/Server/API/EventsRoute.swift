@@ -23,9 +23,7 @@ func addEventsRoute(to router: Router<BasicRequestContext>, backend: any AppBack
             body: ResponseBody { writer in
                 // Subscribe before reading the state, so nothing between the two is lost.
                 let events = await hub.subscribe()
-                let status = await backend.systemStatus()
-                let hello = ServerEvent.hello(
-                    recording: status.recordingState, online: status.online, problem: status.problem)
+                let hello = ServerEvent.hello(await backend.systemStatus())
                 let (closed, closeSignal) = AsyncStream<Void>.makeStream()
                 try await request.body.withInboundCloseHandler {
                     try await EventStreamWriter.run(

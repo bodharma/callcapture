@@ -120,13 +120,25 @@ export interface AnalysisDTO {
   insights?: Insights;
 }
 
+/** The Record/Stop button exactly as the app's menu shows it; rendered as is. */
+export interface RecordingButtonState {
+  action: "start" | "stop";
+  enabled: boolean;
+  /** Why it is disabled (not sent while a start or stop is in progress). */
+  reason?: string;
+}
+
 export interface SystemStatus {
   online: boolean;
-  /** True from the moment a recording starts until it has stopped: playback would be recorded. */
+  /**
+   * True while playback would be recorded: from a start until the tap has surely
+   * stopped (also after a failed stop, when the phase is already idle).
+   */
   recording: boolean;
   version: string;
-  /** idle, starting, recording, stopping or processing (older apps omit it). */
+  /** idle, starting, recording, stopping or processing, from the app state and transition. */
   recordingState?: RecordingState;
+  button?: RecordingButtonState;
   /** Why the last recording start or stop failed, as the menu shows it. */
   problem?: string;
 }

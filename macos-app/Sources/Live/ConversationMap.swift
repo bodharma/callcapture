@@ -548,7 +548,10 @@ final class LiveMeetingModel {
     private func persist() {
         guard let url = ownedSaveURL else { return }
         do { let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; try encoder.encode(document).write(to: url, options: .atomic) }
-        catch { self.error = "Live map could not be saved: \(error.localizedDescription)" }
+        catch { self.error = "Live map could not be saved: \(error.localizedDescription)"; return }
+        // A saved map edited in any window; the meeting being recorded is reported (throttled)
+        // by the app's live watcher instead.
+        if !document.isRecording { ModelFileEvents.notify(.liveMap(sessionID: document.sessionID)) }
     }
 
     private static func validate(_ document: ConversationDocument) throws {

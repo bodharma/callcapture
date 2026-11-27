@@ -139,23 +139,25 @@ struct ContentView: View {
         }
     }
 
+    /// The same rule as the web UI's button (`RecordingButton.current`).
     @ViewBuilder
     private var recordButton: some View {
+        let button = RecordingButton.current(
+            state: appModel.state, transition: appModel.recordingTransition,
+            livePreparing: appModel.liveMeeting.isPreparing)
+        let stops = button.action == .stopping
         Button {
             Task {
                 await appModel.toggleRecording()
                 if appModel.state == .recording && appModel.liveMeetingEnabled { showWindow("live-meeting") }
             }
         } label: {
-            Label(
-                appModel.state == .recording ? "Stop Recording" : "Start Recording",
-                systemImage: appModel.state == .recording ? "stop.circle.fill" : "record.circle"
-            )
-            .frame(maxWidth: .infinity)
+            Label(stops ? "Stop Recording" : "Start Recording", systemImage: stops ? "stop.circle.fill" : "record.circle")
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
-        .tint(appModel.state == .recording ? .red : .accentColor)
-        .disabled(appModel.state == .transcribing || appModel.liveMeeting.isPreparing || appModel.recordingTransitionInProgress)
+        .tint(stops ? .red : .accentColor)
+        .disabled(!button.enabled)
     }
 
     @ViewBuilder

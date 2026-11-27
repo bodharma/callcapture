@@ -127,13 +127,7 @@ final class AppModelBackend: AppBackend {
     func systemStatus() async -> SystemStatus {
         guard let model else { return SystemStatus(online: false, recording: false, version: Self.version) }
         return await MainActor.run {
-            let phase = model.recordingPhase
-            return SystemStatus(
-                online: model.connectivity.isOnline,
-                recording: phase.blocksPlayback,
-                version: Self.version,
-                recordingState: phase.rawValue,
-                problem: model.recordingProblem)
+            SystemStatus(online: model.connectivity.isOnline, version: Self.version, recordingStatus: model.recordingStatus)
         }
     }
 }
