@@ -212,7 +212,7 @@ import Testing
         let (manager, before) = try running()
 
         NotesRegeneration.recordFailure(
-            "The saved transcript is missing. Use Re-process to transcribe the recording again.",
+            "The saved transcript is missing. Process the recording again to transcribe it.",
             advise: false, previous: before, in: manager)
 
         let after = try #require(manager.session(id: "S1"))
@@ -223,7 +223,7 @@ import Testing
         #expect(after.costProcessing == 0.001)
         #expect(after.warningMessage == """
             Regenerating AI notes failed; the previous notes were kept. The saved transcript is missing. \
-            Use Re-process to transcribe the recording again.
+            Process the recording again to transcribe it.
             AI notes failed (cut off); rule-based notes were used.
             """)
     }

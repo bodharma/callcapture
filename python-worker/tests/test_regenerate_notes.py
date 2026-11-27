@@ -318,7 +318,7 @@ def test_an_unusable_transcript_fails_with_a_sentence(tmp_path, no_transcription
 
     assert result.status == "failed", problem
     assert result.error_message and result.error_message.endswith("."), problem
-    assert "Re-process" in result.error_message, problem
+    assert "Process the recording again" in result.error_message, problem
     assert not (tmp_path / "S1_notes.md").exists()
 
 
@@ -360,3 +360,36 @@ def test_the_cli_command_accepts_the_swift_request_shape(tmp_path, no_transcript
 
     assert run.exit_code == 0, run.output
     assert json.loads(run.stdout.strip().splitlines()[-1])["status"] == "completed"
+
+
+def test_a_render_failure_leaves_the_earlier_analysis_and_notes_untouched(tmp_path, no_transcription, no_llm):
+    audio, transcript = _session(tmp_path)
+    _earlier_analysis(tmp_path, EARLIER_SENTIMENT)
+    (tmp_path / "S1_notes.md").write_text("# Old notes\n", encoding="utf-8")
+    analysis_before = (tmp_path / "S1_analysis.json").read_bytes()
+    notes_before = (tmp_path / "S1_notes.md").read_bytes()
+
+    with patch("app.cli.analyze_insights", return_value=Insights(title="New", summary="s")), \
+         patch("app.cli.render_note", side_effect=RuntimeError("render broke")):
+        with pytest.raises(RuntimeError):
+            cli._run_regenerate_notes(_request(audio, transcript))
+
+    assert (tmp_path / "S1_analysis.json").read_bytes() == analysis_before
+    assert (tmp_path / "S1_notes.md").read_bytes() == notes_before
+
+
+def test_regenerate_reports_progress_through_the_ai_step(tmp_path, no_transcription, no_llm):
+    audio, transcript = _session(tmp_path)
+    ticks = []
+    with patch("app.cli.analyze_insights", return_value=Insights(title="T", summary="s")), \
+         patch("app.cli.report_progress", side_effect=lambda _id, p, stage: ticks.append((p, stage))):
+        cli._run_regenerate_notes(_request(audio, transcript))
+
+    assert ticks == [
+        (0.0, "loading transcript"),
+        (0.15, "analysing sentiment"),
+        (0.35, "writing notes"),
+        (0.5, "postprocessing"),
+        (0.8, "exporting"),
+        (1.0, "done"),
+    ]

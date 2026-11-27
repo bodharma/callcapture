@@ -210,7 +210,7 @@ def _compute_costs(request: JobRequest, duration_sec: float | None) -> dict:
     }
 
 
-_TRANSCRIBE_AGAIN = "Use Re-process to transcribe the recording again."
+_TRANSCRIBE_AGAIN = "Process the recording again to transcribe it."
 
 
 class SavedTranscriptError(ValueError):
@@ -428,12 +428,16 @@ def _analyze_and_write_notes(
         label: {"valence": e.valence, "arousal": e.arousal, "dominant_emotion": e.dominant_emotion}
         for label, e in emotion.items()
     }
+    if keep_notes_on_ai_fallback:
+        report_progress(request.job_id, 0.15, "analysing sentiment")
     sentiment, sentiment_warnings = _sentiment_for_notes(
         request, segments, emotion_summary, arc, keep_earlier_on_fallback=keep_notes_on_ai_fallback
     )
     # Before insights, which take the sentiment as context and record their own warnings once.
     run_warnings = list(sentiment_warnings)
 
+    if keep_notes_on_ai_fallback:
+        report_progress(request.job_id, 0.35, "writing notes")
     insights = analyze_insights(
         segments,
         recording_type=request.recording_type,
@@ -451,17 +455,19 @@ def _analyze_and_write_notes(
     warnings.extend(run_warnings)
 
     speakers = _build_speakers(segments, emotion)
-    analysis_path = _write_analysis(
-        request, segments, sentiment, emotion, insights, speakers=speakers
-    )
 
     report_progress(request.job_id, 0.5, "postprocessing")
 
+    # Render before anything is written, so a render failure can't replace the analysis
+    # while the earlier notes stay.
     rendered = render_note(request.recording_type, insights, sentiment, speakers, segments,
                            profile=request.markdown_profile)
 
     report_progress(request.job_id, 0.8, "exporting")
 
+    analysis_path = _write_analysis(
+        request, segments, sentiment, emotion, insights, speakers=speakers
+    )
     base_dir = os.path.dirname(request.audio_path)
     base_name = os.path.splitext(os.path.basename(request.audio_path))[0]
     md_path = os.path.join(base_dir, f"{base_name}_notes.md")
