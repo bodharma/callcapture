@@ -60,10 +60,16 @@ export function apiSend<T>(method: string, path: string, body?: unknown): Promis
   return request<T>(method, path, body);
 }
 
-/** A sentence for the user: the server's message, or what to check when the app didn't answer. */
+/**
+ * What to say when a request got no answer at all. After a restart the app is on a new
+ * session (and maybe a new port), so this page can only be reached again from the menu.
+ */
+export const APP_NOT_ANSWERING = "CallCapture isn't answering. If it restarted, open it again from the menu bar.";
+
+/** A sentence for the user: the server's message, or what to do when the app didn't answer. */
 export function errorText(error: unknown): string {
   if (error instanceof ApiError) return sentence(error.message);
-  return "CallCapture didn't answer. Check that the app is running, then try again.";
+  return APP_NOT_ANSWERING;
 }
 
 function sentence(text: string): string {

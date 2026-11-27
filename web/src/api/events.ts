@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { apiGet, SignInRequired } from "./client";
+import { ApiError, apiGet, SignInRequired } from "./client";
 import type { LiveNotesUsage, LiveSource, LiveTurn } from "./liveTypes";
 import type { RecordingButtonState } from "./types";
 
@@ -27,10 +27,22 @@ export type ServerEvent =
   | { type: "settings" }
   | { type: "progress"; sessionID: string; value: number };
 
-export type Connection = "connecting" | "live" | "reconnecting" | "signedOut";
+export type Connection = "connecting" | "live" | "reconnecting" | "unreachable" | "signedOut";
 
-/** "ok" to keep reconnecting; "signedOut" when the app wants a new sign-in (401). */
-export type ProbeResult = "ok" | "signedOut";
+/**
+ * "ok": the app answered, keep reconnecting; "signedOut": it wants a new sign-in (401);
+ * "unreachable": nothing answered (the app quit, or restarted on another port).
+ */
+export type ProbeResult = "ok" | "signedOut" | "unreachable";
+
+/** Consecutive unanswered checks before the page says the app isn't answering. */
+export const UNREACHABLE_AFTER = 3;
+
+/** How a failed check reads: any HTTP answer means the app is there. */
+export function probeFailure(error: unknown): ProbeResult {
+  if (error instanceof SignInRequired) return "signedOut";
+  return error instanceof ApiError ? "ok" : "unreachable";
+}
 
 export interface EventStreamOptions {
   onEvent: (event: ServerEvent) => void;
@@ -67,7 +79,9 @@ function toEvent(type: ServerEvent["type"], data: unknown): ServerEvent | undefi
  * One events connection that reconnects itself: on any error it closes the
  * EventSource (so the browser's own fixed-delay retry doesn't run), asks `probe`
  * whether the session is still valid, then retries after 1 s, 2 s, 4 s … up to 30 s.
- * A connection that opens resets the delay. `probe` saying "signedOut" stops it.
+ * A connection that opens resets the delay. `probe` saying "signedOut" stops it; after
+ * `UNREACHABLE_AFTER` checks in a row get no answer it reports "unreachable" instead of
+ * "reconnecting", and keeps trying (an app restarted on the same port answers 401).
  */
 export function openEventStream({ onEvent, onConnection, probe, url = "/api/events" }: EventStreamOptions): {
   close(): void;
@@ -75,6 +89,7 @@ export function openEventStream({ onEvent, onConnection, probe, url = "/api/even
   let source: EventSource | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let delay = FIRST_RETRY_MS;
+  let unanswered = 0;
   let closed = false;
 
   const connect = () => {
@@ -85,15 +100,16 @@ export function openEventStream({ onEvent, onConnection, probe, url = "/api/even
     current.onopen = () => {
       if (closed || source !== current) return;
       delay = FIRST_RETRY_MS;
+      unanswered = 0;
       onConnection("live");
     };
     current.onerror = () => {
       if (closed || source !== current) return;
       current.close();
       source = undefined;
-      onConnection("reconnecting");
+      if (unanswered < UNREACHABLE_AFTER) onConnection("reconnecting");
       void probe()
-        .catch((): ProbeResult => "ok")
+        .catch((): ProbeResult => "unreachable")
         .then((result) => {
           if (closed) return;
           if (result === "signedOut") {
@@ -101,6 +117,8 @@ export function openEventStream({ onEvent, onConnection, probe, url = "/api/even
             onConnection("signedOut");
             return;
           }
+          unanswered = result === "unreachable" ? unanswered + 1 : 0;
+          onConnection(unanswered >= UNREACHABLE_AFTER ? "unreachable" : "reconnecting");
           timer = setTimeout(connect, delay);
           delay = Math.min(delay * 2, MAX_RETRY_MS);
         });
@@ -149,7 +167,7 @@ async function defaultProbe(): Promise<ProbeResult> {
     await apiGet("/api/system");
     return "ok";
   } catch (error) {
-    return error instanceof SignInRequired ? "signedOut" : "ok";
+    return probeFailure(error);
   }
 }
 

@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { calls, mockApi } from "../test/api";
 import { FakeEventSource } from "../test/fakeEventSource";
 import { recordButton, recordingEvent, stopButton, systemIdle, systemRecording } from "../test/liveFixtures";
@@ -110,5 +110,29 @@ describe("TopBar recording control", () => {
     expect(await screen.findByText("Live")).toBeTruthy();
     act(() => FakeEventSource.latest().fail());
     expect(await screen.findByText("Reconnecting…")).toBeTruthy();
+  });
+
+  it("says the app isn't answering when the checks after a drop get no answer", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let down = false;
+    mockApi({
+      "/api/system": () => {
+        if (down) throw new TypeError("Failed to fetch");
+        return systemIdle;
+      },
+      "/api/sessions": [],
+    });
+    renderAt("/sessions");
+    await screen.findByRole("button", { name: "Record" });
+    act(() => FakeEventSource.latest().open());
+    down = true;
+    for (const wait of [1_000, 2_000, 4_000]) {
+      act(() => FakeEventSource.latest().fail());
+      await act(() => vi.advanceTimersByTimeAsync(wait));
+    }
+    expect(
+      await screen.findByText("CallCapture isn't answering. If it restarted, open it again from the menu bar."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Reconnecting…")).toBeNull();
   });
 });

@@ -33,7 +33,8 @@
 .connection--live {
   color: var(--signal);
 }
-.connection--reconnecting {
+.connection--reconnecting,
+.connection--unreachable {
   color: var(--amber);
 }
 

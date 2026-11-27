@@ -1,8 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakeEventSource } from "../test/fakeEventSource";
-import { getConnection, openEventStream, subscribe, type Connection, type ServerEvent } from "./events";
+import {
+  getConnection,
+  openEventStream,
+  subscribe,
+  type Connection,
+  type ProbeResult,
+  type ServerEvent,
+} from "./events";
 
-function stream(probe: () => Promise<"ok" | "signedOut"> = () => Promise.resolve("ok")) {
+function stream(probe: () => Promise<ProbeResult> = () => Promise.resolve("ok")) {
   const events: ServerEvent[] = [];
   const states: Connection[] = [];
   const handle = openEventStream({
@@ -74,6 +81,42 @@ describe("events", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     expect(FakeEventSource.instances).toHaveLength(2);
     expect(states.at(-1)).toBe("reconnecting");
+    handle.close();
+  });
+
+  it("says the app isn't answering after three checks get no answer, and keeps trying", async () => {
+    vi.useFakeTimers();
+    const { states, handle } = stream(() => Promise.resolve("unreachable"));
+    for (const wait of [1_000, 2_000]) {
+      FakeEventSource.latest().fail();
+      await vi.advanceTimersByTimeAsync(wait);
+      expect(states.at(-1)).toBe("reconnecting");
+    }
+    FakeEventSource.latest().fail();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(states.at(-1)).toBe("unreachable");
+    // Still retrying: the app may come back (then a 401 asks to sign in again).
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(FakeEventSource.instances).toHaveLength(4);
+    FakeEventSource.latest().fail();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(states.at(-1)).toBe("unreachable");
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(FakeEventSource.instances).toHaveLength(5);
+    FakeEventSource.latest().open();
+    expect(states.at(-1)).toBe("live");
+    handle.close();
+  });
+
+  it("starts the count over once a check gets an answer", async () => {
+    vi.useFakeTimers();
+    const answers: ProbeResult[] = ["unreachable", "unreachable", "ok", "unreachable", "unreachable"];
+    const { states, handle } = stream(() => Promise.resolve(answers.shift() ?? "ok"));
+    for (const wait of [1_000, 2_000, 4_000, 8_000, 16_000]) {
+      FakeEventSource.latest().fail();
+      await vi.advanceTimersByTimeAsync(wait);
+    }
+    expect(states).not.toContain("unreachable");
     handle.close();
   });
 

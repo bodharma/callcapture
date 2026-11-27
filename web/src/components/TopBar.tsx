@@ -1,11 +1,18 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
+import { APP_NOT_ANSWERING } from "../api/client";
 import { useConnection } from "../api/events";
 import { useSystem } from "../features/sessions/api";
 import { RecordControl } from "./RecordControl";
 import "./topbar.css";
 
-const CONNECTION_TEXT = { connecting: "Connecting…", live: "Live", reconnecting: "Reconnecting…", signedOut: "" };
+const CONNECTION_TEXT = {
+  connecting: "Connecting…",
+  live: "Live",
+  reconnecting: "Reconnecting…",
+  unreachable: APP_NOT_ANSWERING,
+  signedOut: "",
+};
 
 /** Whether the app's live updates reach this page. */
 export function ConnectionStatus() {

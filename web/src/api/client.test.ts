@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, SignInRequired, apiGet, apiSend } from "./client";
+import { ApiError, SignInRequired, apiGet, apiSend, errorText } from "./client";
 
 function stubFetch(status: number, body: unknown) {
   const fn = vi.fn(async () => new Response(JSON.stringify(body), { status }));
@@ -68,6 +68,13 @@ describe("api client", () => {
     expect(err.status).toBe(500);
     expect(err.code).toBeUndefined();
     expect(err.message).toBe("Internal Server Error");
+  });
+
+  it("says the app isn't answering when the request got no answer at all", () => {
+    expect(errorText(new TypeError("Failed to fetch"))).toBe(
+      "CallCapture isn't answering. If it restarted, open it again from the menu bar.",
+    );
+    expect(errorText(new ApiError(409, "Busy now"))).toBe("Busy now.");
   });
 
   it("sends JSON bodies with the given method", async () => {

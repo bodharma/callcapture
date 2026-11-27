@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { apiGet, SignInRequired } from "../api/client";
-import { subscribe, type ProbeResult } from "../api/events";
+import { apiGet } from "../api/client";
+import { probeFailure, subscribe, type ProbeResult } from "../api/events";
 import type { SystemStatus } from "../api/types";
 import { keys } from "../features/sessions/api";
 import { applyEvent } from "./eventsToCache";
@@ -25,7 +25,7 @@ export function EventsBridge() {
         });
         return "ok";
       } catch (error) {
-        return error instanceof SignInRequired ? "signedOut" : "ok";
+        return probeFailure(error);
       }
     };
     return subscribe(
