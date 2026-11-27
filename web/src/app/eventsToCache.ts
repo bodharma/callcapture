@@ -41,8 +41,8 @@ function updateSystem(client: QueryClient, change: SystemChange) {
 
 /**
  * Refetches open session details (["session", id] only, not their transcripts or
- * peaks): the app's re-process block reason depends on the network and on the
- * configured engine.
+ * peaks): what can run now (re-process, delete) depends on the network, the
+ * configured engine, and whether the app is recording or processing.
  */
 function invalidateSessionDetails(client: QueryClient) {
   void client.invalidateQueries({
@@ -77,6 +77,8 @@ export function applyEvent(client: QueryClient, event: ServerEvent, resync: bool
       });
       // A start adds a row and a stop finalizes it.
       void client.invalidateQueries({ queryKey: keys.sessions });
+      // A recording or a processing run starting or ending changes what an open page may run.
+      invalidateSessionDetails(client);
       return;
     case "connectivity":
       updateSystem(client, { online: event.online });

@@ -185,6 +185,37 @@ describe("SessionDetail", () => {
     expect(confirmSpy).not.toHaveBeenCalled();
   });
 
+  it("keeps Delete off with the app's reason before any click while the app processes the session", async () => {
+    const reason = "This session is being processed. Delete it when that finishes, or cancel it from the menu.";
+    api(sessionFixture({ status: "transcribing", canDelete: false, deleteBlocked: reason }));
+    renderAt("/sessions/S1");
+    const button = (await screen.findByRole("button", { name: "Delete session" })) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    const shown = screen.getByText(reason);
+    expect(button.getAttribute("aria-describedby")).toBe(shown.id);
+  });
+
+  it("offers Delete for a session left processing when the app isn't processing it", async () => {
+    api(sessionFixture({ status: "transcribing", canDelete: true }));
+    renderAt("/sessions/S1");
+    const button = (await screen.findByRole("button", { name: "Delete session" })) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+  });
+
+  it("refreshes what can run when a recording starts, so Re-process says why it's off", async () => {
+    let blocked: string | undefined;
+    api(sessionFixture(), { "/api/sessions/S1": () => sessionFixture({ reprocessBlocked: blocked }) });
+    renderAt("/sessions/S1");
+    const button = (await screen.findByRole("button", { name: "Re-process" })) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    blocked = "Stop the recording before processing a session.";
+    act(() =>
+      FakeEventSource.latest().emit("recording", recordingEvent("starting", true, { action: "start", enabled: false })),
+    );
+    expect(await screen.findByText("Stop the recording before processing a session.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Re-process" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("shows the full transcript and renames a speaker", async () => {
     const fetchFn = api(sessionFixture(), { "PUT /api/sessions/S1/speakers/Speaker%202": { status: 204 } });
     renderAt("/sessions/S1?tab=transcript");

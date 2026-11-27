@@ -1,11 +1,15 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { errorText } from "../../api/client";
 import type { SessionDTO } from "../../api/types";
 import { forgetSession, useDeleteSession, useReveal } from "./api";
 
-/** The audio file, Show in Finder, and Delete with an in-page confirmation. */
+/**
+ * The audio file, Show in Finder, and Delete with an in-page confirmation. Whether
+ * Delete can run comes from the app (`canDelete`, `deleteBlocked`), which knows what it
+ * is recording or processing; the stored status alone can be stale after a quit.
+ */
 export function FileActions({ session }: { session: SessionDTO }) {
   const reveal = useReveal(session.id);
   const remove = useDeleteSession(session.id);
@@ -14,7 +18,9 @@ export function FileActions({ session }: { session: SessionDTO }) {
   const [confirming, setConfirming] = useState(false);
   const cancelButton = useRef<HTMLButtonElement>(null);
   const deleteButton = useRef<HTMLButtonElement>(null);
-  const busy = session.status === "recording" || session.status === "transcribing";
+  const reasonId = useId();
+  const blocked = session.canDelete === false;
+  const reason = blocked ? session.deleteBlocked : undefined;
 
   useEffect(() => {
     if (confirming) cancelButton.current?.focus();
@@ -44,15 +50,20 @@ export function FileActions({ session }: { session: SessionDTO }) {
           ref={deleteButton}
           type="button"
           className="btn btn--small btn--danger"
-          disabled={busy}
+          disabled={blocked}
           aria-expanded={confirming}
-          title={busy ? "A session can't be deleted while it records or is processed." : undefined}
+          aria-describedby={reason ? reasonId : undefined}
           onClick={() => setConfirming(true)}
         >
           Delete session
         </button>
       </div>
-      {confirming && (
+      {reason && (
+        <p id={reasonId} className="files-reason">
+          {reason}
+        </p>
+      )}
+      {confirming && !blocked && (
         <div
           className="confirm"
           role="group"

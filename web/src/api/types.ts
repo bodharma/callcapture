@@ -36,13 +36,18 @@ export interface SessionDTO {
   hasNote: boolean;
   hasAnalysis: boolean;
   hasLiveMap: boolean;
-  /** 0 to 1 while the session transcribes; absent otherwise. */
+  // Detail answers only, from what the app is doing right now; absent from the list.
+  /** 0 to 1 while the app processes this session; absent otherwise. */
   progress?: number;
   /**
-   * Why Transcribe / Re-process / Retry can't run now (offline with cloud
-   * transcription), in the app's words. Detail answers only; absent otherwise.
+   * Why Transcribe / Re-process / Retry can't run now (a recording, another
+   * session being processed, offline with cloud transcription), in the app's words.
    */
   reprocessBlocked?: string;
+  /** Whether Delete can run now. Absent (a list answer) counts as allowed; the app still checks. */
+  canDelete?: boolean;
+  /** Why Delete can't run now, in the app's words. */
+  deleteBlocked?: string;
 }
 
 /** One choice for a select; the app sends the values and labels (`GET /api/sessions/options`). */

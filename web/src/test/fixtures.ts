@@ -19,6 +19,7 @@ export function sessionFixture(overrides: Partial<SessionDTO> = {}): SessionDTO 
     hasNote: true,
     hasAnalysis: true,
     hasLiveMap: false,
+    canDelete: true,
     ...overrides,
   };
 }
