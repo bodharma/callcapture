@@ -2,11 +2,13 @@ import { useId, useMemo, useState } from "react";
 import { errorText } from "../../api/client";
 import { useRefreshCatalog, useSaveSetting } from "./api";
 import { OfflineReason } from "./controls";
+import { ModelFilterPanel } from "./ModelFilterPanel";
+import { NO_FILTERS, filtersActive, type CostRole, type ModelFilters } from "./modelFilters";
 import { DEFAULT_SORT, perHour, scoreSegments, toggleSort, visibleModels, type SortColumn } from "./modelSort";
 import type { CatalogDTO, CatalogModel } from "./types";
 import "./ModelTable.css";
 
-type Role = "live" | "final";
+type Role = CostRole;
 
 interface TableProps {
   catalog: CatalogDTO;
@@ -41,10 +43,17 @@ export function ModelTable({ catalog, liveModel, finalModel, online, offlineReas
   const [query, setQuery] = useState("");
   const [jsonOnly, setJsonOnly] = useState(true);
   const [sort, setSort] = useState(DEFAULT_SORT);
+  const [filters, setFilters] = useState<ModelFilters>(NO_FILTERS);
+  const [costRole, setCostRole] = useState<CostRole>("live");
   const rows = useMemo(
-    () => visibleModels(catalog.models, { query, jsonOnly, sort }),
-    [catalog.models, query, jsonOnly, sort],
+    () => visibleModels(catalog.models, { query, jsonOnly, sort, filters, costRole }),
+    [catalog.models, query, jsonOnly, sort, filters, costRole],
   );
+  const clearFilters = () => {
+    setFilters(NO_FILTERS);
+    setQuery("");
+  };
+  const canClear = filtersActive(filters) || query !== "";
   const save = useSaveSetting();
   const refresh = useRefreshCatalog();
   const offline = online === false;
@@ -99,6 +108,17 @@ export function ModelTable({ catalog, liveModel, finalModel, online, offlineReas
         </p>
       )}
 
+      <ModelFilterPanel
+        models={catalog.models}
+        filters={filters}
+        costRole={costRole}
+        shown={rows.length}
+        canClear={canClear}
+        onChange={setFilters}
+        onCostRole={setCostRole}
+        onClear={clearFilters}
+      />
+
       <div className="catalog-scroll">
         <table className="catalog-table" aria-label="OpenRouter models">
           <thead>
@@ -129,11 +149,18 @@ export function ModelTable({ catalog, liveModel, finalModel, online, offlineReas
             ))}
           </tbody>
         </table>
-        {rows.length === 0 && <p className="empty catalog-empty">No models match.</p>}
+        {rows.length === 0 && (
+          <div className="empty catalog-empty">
+            <p>No models match these filters.</p>
+            <button type="button" className="btn btn--small" onClick={clearFilters}>
+              Clear filters
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="catalog-notes">
-        {scored && catalog.attribution && <p>{catalog.attribution}</p>}
+        {(scored || filters.minMultilingual !== undefined) && catalog.attribution && <p>{catalog.attribution}</p>}
         <p>{catalog.costExplanation}</p>
         <p>{catalog.tagRules}</p>
       </div>

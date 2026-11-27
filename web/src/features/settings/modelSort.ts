@@ -1,3 +1,4 @@
+import { filterModels, type CostRole, type ModelFilters } from "./modelFilters";
 import type { CatalogModel } from "./types";
 
 export type SortColumn = "name" | "live" | "final" | "intelligence" | "multilingual" | "strategy" | "context";
@@ -12,6 +13,10 @@ export interface TableView {
   /** Only models that return JSON, which automatic live notes need. */
   jsonOnly: boolean;
   sort: ModelSort;
+  /** Provider, cost, score, context and tag limits; none when omitted. */
+  filters?: ModelFilters;
+  /** Which job the cost limit is for. */
+  costRole?: CostRole;
 }
 
 /** Cheapest live notes first, as the app's picker opens. */
@@ -56,7 +61,8 @@ export function sortModels(models: readonly CatalogModel[], sort: ModelSort): Ca
 
 export function visibleModels(models: readonly CatalogModel[], view: TableView): CatalogModel[] {
   const query = view.query.trim().toLocaleLowerCase();
-  const matching = models.filter(
+  const limited = view.filters ? filterModels(models, view.filters, view.costRole ?? "live") : models;
+  const matching = limited.filter(
     (model) =>
       (!view.jsonOnly || model.supportsJSON) &&
       (query === "" || model.name.toLocaleLowerCase().includes(query) || model.id.toLocaleLowerCase().includes(query)),
