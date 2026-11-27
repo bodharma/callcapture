@@ -178,9 +178,9 @@ th[aria-sort] .sort-button {
 .catalog-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .catalog-empty p { margin: 0; }
 
-.provider-filter { position: relative; align-self: flex-end; }
+.provider-filter { align-self: flex-start; }
 .provider-button { display: inline-flex; align-items: center; cursor: pointer; }
-.provider-panel { position: absolute; z-index: 5; top: calc(100% + 4px); left: 0; width: 280px; padding: 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel-raised); display: flex; flex-direction: column; gap: 8px; }
+.provider-panel { margin-top: 4px; width: 280px; max-width: 100%; padding: 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel-raised); display: flex; flex-direction: column; gap: 8px; }
 .provider-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .provider-tools .search { flex: 1; min-width: 0; }
 .provider-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }

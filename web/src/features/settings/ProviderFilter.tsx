@@ -1,5 +1,5 @@
-import { useId, useRef, useState } from "react";
-import type { ProviderOption } from "./modelFilters";
+import { useEffect, useId, useRef, useState } from "react";
+import { providerName, type ProviderOption } from "./modelFilters";
 
 interface ProviderFilterProps {
   options: readonly ProviderOption[];
@@ -7,14 +7,22 @@ interface ProviderFilterProps {
   onChange: (chosen: string[]) => void;
 }
 
-/** A disclosure button over a filterable, scrollable checklist: the catalog has dozens of providers. */
+/** A disclosure button over a filterable, scrollable checklist that opens in the page flow: the catalog has dozens of providers. */
 export function ProviderFilter({ options, chosen, onChange }: ProviderFilterProps) {
   const panelId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const button = useRef<HTMLButtonElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const needle = query.trim().toLocaleLowerCase();
-  const shown = options.filter(
+  // A chosen provider with no models in view stays listed (at zero) so it can be unticked.
+  const listed = [
+    ...options,
+    ...chosen
+      .filter((id) => !options.some((option) => option.id === id))
+      .map((id) => ({ id, name: providerName(id), count: 0 })),
+  ];
+  const shown = listed.filter(
     (option) => needle === "" || option.name.toLocaleLowerCase().includes(needle) || option.id.includes(needle),
   );
 
@@ -22,12 +30,26 @@ export function ProviderFilter({ options, chosen, onChange }: ProviderFilterProp
     setOpen(false);
     button.current?.focus();
   };
+  // A press outside closes it without moving focus: the press already put focus where it belongs.
+  useEffect(() => {
+    if (!open) return;
+    const onPress = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPress);
+    return () => document.removeEventListener("pointerdown", onPress);
+  }, [open]);
   const toggle = (id: string, on: boolean) =>
     onChange(on ? [...chosen, id] : chosen.filter((entry) => entry !== id));
 
   return (
     <div
+      ref={root}
       className="provider-filter"
+      onBlur={(event) => {
+        const next = event.relatedTarget as Node | null;
+        if (open && next && !event.currentTarget.contains(next)) setOpen(false);
+      }}
       onKeyDown={(event) => {
         if (event.key === "Escape" && open) {
           event.stopPropagation();

@@ -190,6 +190,44 @@ describe("provider filter with the full catalog", () => {
     expect(labels().some((l) => l.startsWith("Texty"))).toBe(true);
   });
 
+  it("closes on a pointer press outside, leaving focus where the press put it", async () => {
+    open(many());
+    await table();
+    openProviders();
+    fireEvent.pointerDown(screen.getByRole("textbox", { name: "Filter providers" }));
+    expect(screen.getByRole("group", { name: "Provider" })).toBeTruthy();
+    const elsewhere = screen.getByRole("checkbox", { name: "Works for live notes" });
+    elsewhere.focus();
+    fireEvent.pointerDown(elsewhere);
+    expect(screen.getByRole("button", { name: "Provider" }).getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it("closes when focus tabs out of the filter, and stays open while it moves inside", async () => {
+    open(many());
+    await table();
+    openProviders();
+    const field = screen.getByRole("textbox", { name: "Filter providers" });
+    const inside = screen.getByRole("button", { name: "Select none" });
+    fireEvent.focusOut(field, { relatedTarget: inside });
+    expect(screen.getByRole("group", { name: "Provider" })).toBeTruthy();
+    const outside = screen.getByRole("checkbox", { name: "Include models without a score" });
+    fireEvent.focusOut(inside, { relatedTarget: outside });
+    expect(screen.queryByRole("group", { name: "Provider" })).toBeNull();
+  });
+
+  it("keeps a chosen provider listed, at zero, when JSON-only hides all its models", async () => {
+    open(many());
+    await table();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Works for live notes" }));
+    openProviders();
+    tick("Provider", "Texty");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Works for live notes" }));
+    expect(labels().find((l) => l.startsWith("Texty"))).toBe("Texty0");
+    tick("Provider", "Texty");
+    expect(labels().some((l) => l.startsWith("Texty"))).toBe(false);
+  });
+
   it("closes on Escape and returns focus to the button", async () => {
     open(many());
     await table();
