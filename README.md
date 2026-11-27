@@ -55,6 +55,7 @@ The app spawns the worker as a subprocess, sends a `JobRequest` on stdin, and re
 - macOS **14.2** or later (Core Audio process taps)
 - Apple Silicon recommended
 - Python **3.11+** (for the worker)
+- Node.js **22+** and npm (to build the web UI when running from source)
 - API keys only if you opt into cloud engines (AssemblyAI / Deepgram for transcription, OpenRouter for LLM notes) — stored in the macOS Keychain, never in the repo.
 
 ### Install (Homebrew)
@@ -99,11 +100,14 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cd ..
 
-# Build + launch the app in dev mode (builds Swift, bundles, launches)
+# Build + launch the app in dev mode (builds Swift, bundles, builds the web UI
+# into web/dist the first time, launches; needs Node 22+)
 ./run-dev.sh
 ```
 
-A waveform icon appears in the menu bar. Start a call, hit record, stop, and let it transcribe. Configure engine, languages, API keys, and export folders in **Settings**.
+A waveform icon appears in the menu bar. Sessions, Settings and the live view open
+from it as a local web UI (an app window, your browser, or a floating live panel),
+served from `web/dist`; after changing `web/`, run `npm run build` there. Start a call, hit record, stop, and let it transcribe. Configure engine, languages, API keys, and export folders in **Settings**.
 
 Output and microphone use **System Default** and show the current device name.
 Choose another device in either picker, or turn off **Include Microphone** for

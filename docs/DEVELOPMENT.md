@@ -140,16 +140,15 @@ swift test                  # run the Swift suite
 ./run-dev.sh
 ```
 
-`run-dev.sh` builds the Swift binary, copies it into `CallCapture.app`, kills any
-running instance, and launches with:
+`run-dev.sh` builds the Swift binary, copies it into `CallCapture.app`, builds the
+web UI into `web/dist` if it isn't there yet (`npm ci && npm run build`, Node 22+),
+kills any running instance, and launches with:
 
 - `CALLCAPTURE_DEV_MODE=1`
 - `CALLCAPTURE_WORKER_DIR=<repo>/python-worker` — so the app runs your live
   worker code (no reinstall needed for Python changes).
-
-`run-dev.sh` only swaps the binary. If the bundle has no `Contents/Resources/web`
-yet, the web UI shows nothing: run `Scripts/build-app.sh` once, or launch with
-`CALLCAPTURE_WEB_DIR` (see [Web UI](#web-ui)).
+- `CALLCAPTURE_WEB_DIR=<repo>/web/dist` — so the app serves your web build. After
+  web changes, run `npm run build` (or `npx vite build --watch`) in `web/` and reload.
 
 `Scripts/build-app.sh` builds a full bundle: the Swift binary, the frozen worker
 (rebuilt with PyInstaller when its sources changed) and the web UI (rebuilt with
