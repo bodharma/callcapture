@@ -63,6 +63,8 @@ jobs:
 
       - name: Assemble .app
         working-directory: macos-app
+        env:
+          APP_VERSION: ${{ steps.ver.outputs.version }}
         run: ./Scripts/assemble-app.sh release ../python-worker/dist/call-capture-worker
 
       - name: Check for signing secrets

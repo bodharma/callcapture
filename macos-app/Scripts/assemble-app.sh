@@ -36,6 +36,11 @@ mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources/worker" "$
 
 echo "===> Info.plist"
 cp "$SCRIPT_DIR/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+# Release builds stamp the tag's version (APP_VERSION) so the bundle never drifts from the release.
+if [[ -n "${APP_VERSION:-}" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" \
+        -c "Set :CFBundleVersion $APP_VERSION" "$APP_BUNDLE/Contents/Info.plist"
+fi
 
 echo "===> Swift binary"
 cp "$SRC_BIN" "$APP_BUNDLE/Contents/MacOS/CallCapture"
