@@ -63,8 +63,10 @@ again instead of failing to connect. Every
 `/api` request needs an HttpOnly, SameSite=Strict session cookie. The app gets one by
 opening `/login?token=…` with a single-use token that expires in 60 seconds; tokens and
 sessions die with the app. Requests whose `Host` isn't `127.0.0.1:<port>` or
-`localhost:<port>` are refused (DNS rebinding), and so are writes whose `Origin` isn't
-the app's own. There are no CORS headers. Any server on 127.0.0.1 receives the session
+`localhost:<port>` are refused (DNS rebinding). Writes (POST, PUT, PATCH, DELETE) that
+carry an `Origin` other than the app's own are refused; writes with no `Origin` header
+are allowed, because browsers always send one on cross-origin requests (and the
+SameSite=Strict cookie still has to be there). There are no CORS headers. Any server on 127.0.0.1 receives the session
 cookie (cookies ignore ports), so HTML pages send `Content-Security-Policy: frame-ancestors
 'none'` and `X-Frame-Options: DENY` to block framing, and every response sends
 `X-Content-Type-Options: nosniff`. API keys are write-only: the web UI can save
