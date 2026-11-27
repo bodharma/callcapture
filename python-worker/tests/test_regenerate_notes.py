@@ -137,16 +137,89 @@ def _earlier_notes(tmp_path):
     return notes, analysis, notes.read_bytes(), analysis.read_bytes()
 
 
-def test_the_runs_warnings_are_returned(tmp_path, no_transcription, cloud_env):
-    audio, transcript = _session(tmp_path)
+EARLIER_SENTIMENT = {
+    "overall": "positive", "overall_score": 0.6,
+    "by_speaker": {"You": {"label": "positive", "score": 0.7}, "Speaker 1": {"label": "mixed", "score": 0.1}},
+    "arc": [{"t": 10.0, "score": 0.2}, {"t": 30.0, "score": 0.4}],
+}
+
+
+def _earlier_analysis(tmp_path, sentiment):
+    (tmp_path / "S1_analysis.json").write_text(
+        json.dumps({"recording_type": "call_meeting", "insights": {"title": "Old"}, "sentiment": sentiment}),
+        encoding="utf-8")
+
+
+def _regenerate_with_failing_sentiment(tmp_path, audio, transcript):
     with patch.object(sentiment_mod, "LLMClient", _FailingClient), \
-         patch("app.cli.analyze_insights", return_value=Insights(title="Release", summary="s")):
+         patch("app.cli.analyze_insights", return_value=Insights(title="New release", summary="s")) as analyze:
         result = cli._run_regenerate_notes(_request(audio, transcript))
+    analysis = json.loads((tmp_path / "S1_analysis.json").read_text(encoding="utf-8"))
+    notes = (tmp_path / "S1_notes.md").read_text(encoding="utf-8")
+    return result, analysis, notes, analyze
+
+
+def test_a_sentiment_failure_keeps_the_earlier_sentiment(tmp_path, no_transcription, cloud_env):
+    audio, transcript = _session(tmp_path)
+    _earlier_analysis(tmp_path, EARLIER_SENTIMENT)
+
+    result, analysis, notes, analyze = _regenerate_with_failing_sentiment(tmp_path, audio, transcript)
 
     assert result.status == "completed"
     assert result.notes_kept is False
+    assert result.warnings == ["AI sentiment failed (HTTP 404: model not found); the earlier sentiment was kept."]
+    assert analysis["insights"]["title"] == "New release"
+    assert analysis["sentiment"] == EARLIER_SENTIMENT
+    assert "# New release" in notes
+    assert "**Overall:** positive (+0.60)" in notes
+    assert "- **Speaker 1:** mixed (+0.10)" in notes
+    # The new insights were written with the earlier sentiment as their context.
+    assert analyze.call_args.kwargs["sentiment"].overall == "positive"
+
+
+FALLBACK_SENTIMENT = {
+    "overall": "neutral", "overall_score": 0.0, "arc": [{"t": 10.0, "score": 0.2}],
+    "by_speaker": {"You": {"label": "neutral", "score": 0.0}, "Speaker 1": {"label": "neutral", "score": 0.0}},
+}
+
+
+@pytest.mark.parametrize("earlier", ["no analysis", "garbled", "no sentiment", "fallback sentiment"])
+def test_a_sentiment_failure_without_earlier_ai_sentiment_falls_back_to_neutral(
+    tmp_path, no_transcription, cloud_env, earlier
+):
+    audio, transcript = _session(tmp_path)
+    if earlier == "garbled":
+        (tmp_path / "S1_analysis.json").write_text("{garbled", encoding="utf-8")
+    elif earlier == "no sentiment":
+        _earlier_analysis(tmp_path, None)
+    elif earlier == "fallback sentiment":
+        _earlier_analysis(tmp_path, FALLBACK_SENTIMENT)
+
+    result, analysis, notes, _ = _regenerate_with_failing_sentiment(tmp_path, audio, transcript)
+
+    assert result.notes_kept is False
     assert result.warnings == ["AI sentiment failed (HTTP 404: model not found); neutral sentiment was used."]
-    assert (tmp_path / "S1_notes.md").exists()
+    assert analysis["insights"]["title"] == "New release"
+    assert analysis["sentiment"]["overall"] == "neutral"
+    assert analysis["sentiment"]["overall_score"] == 0.0
+    assert analysis["sentiment"]["arc"] == []
+    assert "**Overall:** neutral (+0.00)" in notes
+
+
+def test_transcription_never_carries_sentiment_over(tmp_path, cloud_env):
+    audio, transcript = _session(tmp_path)
+    _earlier_analysis(tmp_path, EARLIER_SENTIMENT)
+    segments = cli._load_saved_transcript(str(transcript))
+    with patch.object(sentiment_mod, "LLMClient", _FailingClient), \
+         patch("app.cli.analyze_insights", return_value=Insights(title="New release", summary="s")), \
+         patch("app.cli.is_emotion_model_ready", return_value=False), \
+         patch("app.cli._transcribe_and_attribute", return_value=segments), \
+         patch("app.cli._count_stems", return_value=1):
+        result = cli._run_pipeline(JobRequest(job_id="S1", command="transcribe", audio_path=str(audio)))
+
+    analysis = json.loads((tmp_path / "S1_analysis.json").read_text(encoding="utf-8"))
+    assert analysis["sentiment"]["overall"] == "neutral"
+    assert result.warnings == ["AI sentiment failed (HTTP 404: model not found); neutral sentiment was used."]
 
 
 @pytest.mark.parametrize("client, reason", [

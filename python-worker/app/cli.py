@@ -325,6 +325,63 @@ def _run_regenerate_notes(request: JobRequest) -> JobResult:
     )
 
 
+def _sentiment_for_notes(
+    request: JobRequest,
+    segments: list[TranscriptSegment],
+    emotion_summary: dict,
+    arc: list,
+    *,
+    keep_earlier_on_fallback: bool,
+) -> tuple[Sentiment | None, list[str]]:
+    """The run's sentiment (with the acoustic arc) and its warnings. With
+    `keep_earlier_on_fallback` (regenerate), a neutral fallback gives way to the earlier
+    AI sentiment, when the session's analysis has one."""
+    warnings: list[str] = []
+    fallback: list[str] = []
+    sentiment = analyze_sentiment(
+        segments,
+        emotion=emotion_summary or None,
+        notes_language=request.notes_language,
+        warnings=warnings,
+        fallback_reasons=fallback,
+    )
+    if sentiment is not None and arc:
+        sentiment = sentiment.model_copy(update={"arc": arc})
+    if not (fallback and keep_earlier_on_fallback):
+        return sentiment, warnings
+    earlier = _earlier_ai_sentiment(request)
+    if earlier is None:
+        return sentiment, warnings
+    if arc and not earlier.arc:
+        earlier = earlier.model_copy(update={"arc": arc})
+    return earlier, [f"AI sentiment failed ({fallback[0]}); the earlier sentiment was kept."]
+
+
+def _earlier_ai_sentiment(request: JobRequest) -> Sentiment | None:
+    """The sentiment in the session's existing `_analysis.json`, unless that file is
+    missing or unreadable, has none, or holds the neutral fallback itself."""
+    path = os.path.splitext(request.audio_path)[0] + "_analysis.json"
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f).get("sentiment")
+        sentiment = Sentiment.model_validate(raw) if isinstance(raw, dict) else None
+    except (OSError, ValueError, AttributeError):  # JSON and validation errors are ValueErrors
+        return None
+    if sentiment is None or _is_neutral_fallback(sentiment):
+        return None
+    return sentiment
+
+
+def _is_neutral_fallback(sentiment: Sentiment) -> bool:
+    """What `analyze_sentiment` falls back to: every label neutral, every score zero. The
+    analysis file keeps no flag for it; an AI answer that flat would carry nothing over."""
+    return (
+        sentiment.overall == "neutral"
+        and sentiment.overall_score == 0.0
+        and all(s.label == "neutral" and s.score == 0.0 for s in sentiment.by_speaker.values())
+    )
+
+
 @dataclass(frozen=True)
 class NotesOutcome:
     """What the shared post-transcription step did."""
@@ -351,10 +408,10 @@ def _analyze_and_write_notes(
     their notes can't drift apart: acoustic emotion (when the model is ready), sentiment,
     insights, speaker metrics, `<base>_analysis.json` and `<base>_notes.md`.
 
-    Appends the run's warnings to `warnings`. With `keep_notes_on_ai_fallback`, rule-based
-    insights write nothing: the warnings then hold only why the earlier notes were kept.
+    Appends the run's warnings to `warnings`. With `keep_notes_on_ai_fallback` (regenerate),
+    rule-based insights write nothing: the warnings then hold only why the earlier notes
+    were kept. A neutral sentiment fallback there keeps the earlier AI sentiment instead.
     """
-    run_warnings: list[str] = []
     fallback_reasons: list[str] = []
     emotion = {}
     arc = []
@@ -371,14 +428,11 @@ def _analyze_and_write_notes(
         label: {"valence": e.valence, "arousal": e.arousal, "dominant_emotion": e.dominant_emotion}
         for label, e in emotion.items()
     }
-    sentiment = analyze_sentiment(
-        segments,
-        emotion=emotion_summary or None,
-        notes_language=request.notes_language,
-        warnings=run_warnings,
+    sentiment, sentiment_warnings = _sentiment_for_notes(
+        request, segments, emotion_summary, arc, keep_earlier_on_fallback=keep_notes_on_ai_fallback
     )
-    if sentiment is not None and arc:
-        sentiment = sentiment.model_copy(update={"arc": arc})
+    # Before insights, which take the sentiment as context and record their own warnings once.
+    run_warnings = list(sentiment_warnings)
 
     insights = analyze_insights(
         segments,

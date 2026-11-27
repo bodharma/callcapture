@@ -108,24 +108,31 @@ def analyze_sentiment(
     emotion: dict | None = None,  # acoustic-tone context; see _tone_block
     notes_language: str = "auto",  # output language directive; "auto" = source
     warnings: list[str] | None = None,
+    fallback_reasons: list[str] | None = None,
 ) -> Sentiment | None:
     """Judge conversation sentiment from speaker-labeled segments via the LLM.
 
     Returns None for an empty transcript; otherwise a `Sentiment`. Never raises —
     an unusable endpoint or any failure yields a neutral fallback covering every
-    speaker present in `segments`.
+    speaker present in `segments`, and appends a short reason (e.g. "offline",
+    "HTTP 429: rate limited") to `fallback_reasons`.
     """
     if not segments:
         return None
 
+    def fallback(reason: str) -> Sentiment:
+        if fallback_reasons is not None:
+            fallback_reasons.append(reason)
+        return _neutral_fallback(segments)
+
     env = resolve_llm_env()
     if env.offline and not env.is_local:
         note(warnings, AI_OFFLINE_MESSAGE)
-        return _neutral_fallback(segments)
+        return fallback("offline")
     if not env.api_key and not env.is_local:
         warn("no LLM_API_KEY for cloud endpoint, using neutral sentiment")
         note(warnings, "AI sentiment needs an LLM API key; neutral sentiment was used.")
-        return _neutral_fallback(segments)
+        return fallback("no LLM API key")
 
     try:
         client = LLMClient(api_key=env.api_key, model=env.model, base_url=env.base_url)
@@ -137,4 +144,4 @@ def analyze_sentiment(
     except (LLMError, ValueError, TypeError, AttributeError, KeyError) as exc:
         warn(f"sentiment failed: {exc}, using neutral sentiment")
         note(warnings, f"AI sentiment failed ({exc}); neutral sentiment was used.")
-        return _neutral_fallback(segments)
+        return fallback(str(exc))

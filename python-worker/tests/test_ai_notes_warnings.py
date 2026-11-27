@@ -105,3 +105,28 @@ def test_no_fallback_reason_when_the_ai_answers(cloud_env):
         result = insights_mod.analyze_insights(_segments(), recording_type="call_meeting", fallback_reasons=reasons)
     assert result is not None and result.title == "Sync"
     assert reasons == []
+
+
+def test_the_sentiment_fallback_reason_is_reported_apart_from_the_warning(cloud_env, monkeypatch):
+    def reasons_for(**env):
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+        reasons: list[str] = []
+        sentiment_mod.analyze_sentiment(_segments(), fallback_reasons=reasons)
+        return reasons
+
+    with patch.object(sentiment_mod, "LLMClient", _FailingClient):
+        assert reasons_for() == ["HTTP 404: model not found"]
+        assert reasons_for(LLM_API_KEY="") == ["no LLM API key"]
+        assert reasons_for(LLM_OFFLINE="1") == ["offline"]
+
+    class _Answering(_FailingClient):
+        def complete_json(self, **kwargs):
+            return {"overall": "positive", "overall_score": 0.5, "by_speaker": {}}
+
+    monkeypatch.delenv("LLM_OFFLINE")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    reasons: list[str] = []
+    with patch.object(sentiment_mod, "LLMClient", _Answering):
+        assert sentiment_mod.analyze_sentiment(_segments(), fallback_reasons=reasons).overall == "positive"
+    assert reasons == []
