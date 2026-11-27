@@ -154,6 +154,40 @@ struct LoopbackGuardMiddleware<Context: RequestContext>: RouterMiddleware {
     }
 }
 
+/// `X-Content-Type-Options: nosniff` on every response, and on HTML pages
+/// `Content-Security-Policy: frame-ancestors 'none'` plus `X-Frame-Options: DENY`:
+/// any server on 127.0.0.1 gets the session cookie (cookies ignore ports), so no other
+/// page may frame the UI. Added first, so it also covers the guard's 401/403 answers and
+/// the errors a route or the not-found responder throws.
+struct SecurityHeadersMiddleware<Context: RequestContext>: RouterMiddleware {
+    static var frameOptions: HTTPField.Name { HTTPField.Name("X-Frame-Options")! }
+
+    func handle(
+        _ request: Request, context: Context,
+        next: (Request, Context) async throws -> Response
+    ) async throws -> Response {
+        let response: Response
+        do {
+            response = try await next(request, context)
+        } catch let error as any HTTPResponseError {
+            response = try error.response(from: request, context: context)
+        } catch {
+            response = APIResponse.from(error)
+        }
+        return Self.secured(response)
+    }
+
+    static func secured(_ response: Response) -> Response {
+        var response = response
+        response.headers[.xContentTypeOptions] = "nosniff"
+        if response.headers[.contentType]?.lowercased().hasPrefix("text/html") == true {
+            response.headers[.contentSecurityPolicy] = "frame-ancestors 'none'"
+            response.headers[frameOptions] = "DENY"
+        }
+        return response
+    }
+}
+
 /// Requires a valid `cc_session` cookie on every `/api/*` path.
 struct AuthMiddleware<Context: RequestContext>: RouterMiddleware {
     let security: ServerSecurity

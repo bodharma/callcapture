@@ -8,6 +8,7 @@ func makeRouter(
     webDirectory: URL? = defaultWebDirectory(), eventHeartbeat: Duration = .seconds(15)
 ) -> Router<BasicRequestContext> {
     let router = Router<BasicRequestContext>()
+    router.add(middleware: SecurityHeadersMiddleware())
     router.add(middleware: LoopbackGuardMiddleware(security: security))
     router.add(middleware: AuthMiddleware(security: security))
 
