@@ -55,10 +55,10 @@ func safeLocalPath(_ candidate: String?) -> String {
     return candidate
 }
 
-/// Loopback HTTP server. Binds `127.0.0.1` on an OS-chosen port and owns the
-/// `ServerSecurity` whose Host/Origin guard needs that port; the port is set
-/// once from the server-running callback, which Hummingbird awaits before it
-/// accepts any connection.
+/// Loopback HTTP server. Binds `127.0.0.1` on the last run's port when it is free
+/// (`ServerPortChoice`), else on an OS-chosen one, and owns the `ServerSecurity`
+/// whose Host/Origin guard needs that port; the port is set once from the
+/// server-running callback, which Hummingbird awaits before it accepts any connection.
 final class LocalServer: Sendable {
     private let backend: any AppBackend
     let security = ServerSecurity(port: 0)
@@ -68,13 +68,19 @@ final class LocalServer: Sendable {
         self.backend = backend
     }
 
-    /// Starts serving and returns the bound port.
-    func start() async throws -> Int {
+    /// Starts serving on `saved` if it can be bound, else on any free port; returns the bound port.
+    func start(preferring saved: Int? = nil) async throws -> Int {
+        try await ServerPortChoice.bind(preferring: saved) { port in try await run(port: port) }
+    }
+
+    /// One attempt on `port` (0: the OS chooses). A failed attempt has ended its server
+    /// before this throws, so the next attempt starts with a fresh `Application`.
+    private func run(port: Int) async throws -> Int {
         let (ports, portSink) = AsyncThrowingStream<Int, any Error>.makeStream()
         let security = self.security
         let app = Application(
             router: makeRouter(backend: backend, security: security),
-            configuration: .init(address: .hostname("127.0.0.1", port: 0)),
+            configuration: .init(address: .hostname("127.0.0.1", port: port)),
             onServerRunning: { channel in
                 guard let port = channel.localAddress?.port else {
                     portSink.finish(throwing: LocalServerError.noBoundPort)
@@ -95,8 +101,18 @@ final class LocalServer: Sendable {
             }
         }
         runner.withLock { $0 = task }
-        for try await port in ports { return port }
-        throw LocalServerError.stoppedBeforeRunning
+        do {
+            for try await bound in ports { return bound }
+            throw LocalServerError.stoppedBeforeRunning
+        } catch {
+            // A bind failure has already ended `runService`; anything else is stopped here.
+            task.cancel()
+            await task.value
+            runner.withLock { current in
+                if current == task { current = nil }
+            }
+            throw error
+        }
     }
 
     func stop() async {

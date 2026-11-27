@@ -57,7 +57,9 @@ and their wording. The web UI renders what the app reports. Live changes (record
 state, live turns, the map, spend, connectivity, session changes) arrive over one
 server-sent events stream, `GET /api/events`.
 
-**Security model.** The server binds `127.0.0.1` on a port chosen at launch. Every
+**Security model.** The server binds `127.0.0.1`, on the port it had last time when that
+port is free (else any free port), so a tab left open across a restart is told to sign in
+again instead of failing to connect. Every
 `/api` request needs an HttpOnly, SameSite=Strict session cookie. The app gets one by
 opening `/login?token=…` with a single-use token that expires in 60 seconds; tokens and
 sessions die with the app. Requests whose `Host` isn't `127.0.0.1:<port>` or

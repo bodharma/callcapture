@@ -149,7 +149,7 @@ final class AppModel {
         serverBackend.attach(self)
         // SwiftUI creates the app (and this model) on the main thread.
         MainActor.assumeIsolated { startPublishingEvents() }
-        startLocalServer()
+        startLocalServer(portStore: ServerPortStore(database: database))
         Task { @MainActor [weak self] in await self?.refreshModelCatalogIfUseful() }
         observeAudioDevices()
         refreshAudioDevices()
@@ -242,13 +242,15 @@ final class AppModel {
         )
     }
 
-    /// Starts the loopback server. A failure is logged and never fatal: the
-    /// menu-bar app keeps recording without its web UI.
-    private func startLocalServer() {
+    /// Starts the loopback server, on last run's port when it is free (so tabs left open
+    /// across a restart are told to sign in again). A failure is logged and never fatal:
+    /// the menu-bar app keeps recording without its web UI.
+    private func startLocalServer(portStore: ServerPortStore) {
         let server = localServer
         Task {
             do {
-                let port = try await server.start()
+                let port = try await server.start(preferring: portStore.load())
+                portStore.save(port)
                 Self.logger.info("Local server listening on 127.0.0.1:\(port)")
                 await MainActor.run { self.localServerPort = port }
             } catch {
