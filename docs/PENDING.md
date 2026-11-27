@@ -62,7 +62,7 @@ Security and correctness, low:
 - `ServerSecurity.constantTimeEquals` folds the length difference into a `UInt8` (truncating); lengths that differ by a multiple of 256 aren't flagged by that term alone.
 - Keychain and settings write failures still answer 200/204.
 - `access(2)` checks may not match what TCC lets the app read.
-- `PeaksCache`: no single-flight (two requests compute the same peaks), an orphaned computation keeps running after its request ends, and `Blocking.run` is uncapped.
+- Waveform peaks (`WaveformPeaks`, `GET …/peaks`): no single-flight (two requests compute the same peaks), an orphaned computation keeps running after its request ends, and `Blocking.run` is uncapped.
 - Some file and database reads still block the Swift cooperative pool.
 - Errors show raw codes in places (e.g. `busy`, `failed`) where a sentence would help.
 
