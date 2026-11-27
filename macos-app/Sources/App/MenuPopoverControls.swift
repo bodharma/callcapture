@@ -21,14 +21,17 @@ struct ChoiceMenu<Value: Hashable>: View {
             .pickerStyle(.inline)
             .labelsHidden()
         } label: {
-            Text(options.first { $0.value == selection.wrappedValue }?.label ?? "Choose…")
-                .font(SignalFonts.body(13))
-                .lineLimit(1)
+            Text(current).font(SignalFonts.body(13)).lineLimit(1)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.visible)
         .fixedSize()
         .accessibilityLabel(title)
+        .accessibilityValue(current)
+    }
+
+    private var current: String {
+        options.first { $0.value == selection.wrappedValue }?.label ?? "Choose…"
     }
 }
 
@@ -128,6 +131,8 @@ struct LiveSetupBlock: View {
                         .buttonStyle(SignalLinkButtonStyle()).font(SignalFonts.body(12, weight: .semibold)).fixedSize()
                 }
             }
+            Text(setup.status).font(SignalFonts.mono(11)).foregroundStyle(SignalPalette.fgMid)
+                .fixedSize(horizontal: false, vertical: true)
             if let blocked = setup.downloadBlocked, !setup.preparing { caption(blocked) }
             Toggle("Automatic memos", isOn: automaticMemos)
                 .toggleStyle(.switch).controlSize(.mini).tint(SignalPalette.signal)

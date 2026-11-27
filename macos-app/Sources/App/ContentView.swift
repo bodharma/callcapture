@@ -92,7 +92,7 @@ struct ContentView: View {
         return LiveSetup(
             modelName: settings.whisperModel.rawValue, preparing: appModel.liveMeeting.isPreparing,
             downloadBlocked: NetworkPolicy.downloadBlockReason(isOnline: online),
-            memosOffline: memosOffline, memosCaption: caption)
+            memosOffline: memosOffline, memosCaption: caption, status: appModel.liveMeeting.status)
     }
 
     // MARK: Choices and actions

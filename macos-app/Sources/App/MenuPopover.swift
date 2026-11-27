@@ -33,6 +33,8 @@ struct LiveSetup {
     var downloadBlocked: String?
     var memosOffline = false
     var memosCaption = "Manual notes and local transcript only."
+    /// The live controller's status ("Local model base is ready", a download failure, …).
+    var status = "Local speech is off"
 }
 
 struct DeviceLists {
