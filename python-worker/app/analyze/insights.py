@@ -8,10 +8,11 @@ a rule-based fallback that still renders a (sparse) note.
 
 from __future__ import annotations
 
-from app.postprocess.llm_client import LLMClient, LLMError
+from app.postprocess.llm_client import LLMClient, LLMError, LLMTruncatedError
 from app.postprocess.llm_env import (
     format_speaker_tone_lines,
     language_directive,
+    notes_max_tokens,
     resolve_llm_env,
     transcript_text,
     AI_OFFLINE_MESSAGE,
@@ -160,10 +161,16 @@ def analyze_insights(
     user = f"{_context_block(sentiment, emotion)}Transcript:\n\n{transcript_text(segments)}"
     try:
         client = LLMClient(api_key=env.api_key, model=env.model, base_url=env.base_url)
-        data = client.complete_json(system=system, user=user)
+        data = client.complete_json(
+            system=system, user=user, max_tokens=notes_max_tokens(segments)
+        )
         if not isinstance(data, dict):
             raise LLMError("non-dict JSON from LLM")
         return _build_insights(data, recording_type, segments)
+    except LLMTruncatedError as exc:
+        warn(f"insights failed: {exc}")
+        note(warnings, str(exc))
+        return _fallback_insights(segments)
     except (LLMError, ValueError, TypeError, AttributeError, KeyError) as exc:
         warn(f"insights failed: {exc}, using fallback insights")
         note(warnings, f"AI notes failed ({exc}); rule-based notes were used.")

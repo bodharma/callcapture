@@ -4,17 +4,33 @@ endpoint resolution, stderr warnings, and transcript formatting."""
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 from dataclasses import dataclass
 
-from app.postprocess.llm_client import OPENROUTER_BASE_URL
+from app.postprocess.llm_client import MAX_OUTPUT_TOKENS, OPENROUTER_BASE_URL
 from app.schemas.models import TranscriptSegment
 
 _DEFAULT_MODEL = "google/gemini-2.5-flash"
 
 # Set by the app (LLM_OFFLINE=1) when the Mac has no network and notes use a cloud endpoint.
 AI_OFFLINE_MESSAGE = "AI notes and sentiment skipped: offline. Re-process when online to generate them."
+
+
+# Output-token budget for the long-form notes calls: ~2000 tokens per hour of audio.
+NOTES_TOKENS_PER_HOUR = 2000
+NOTES_MIN_TOKENS = 4096
+
+
+def notes_max_tokens(segments: list[TranscriptSegment]) -> int:
+    """Output budget for insights/markdown notes, scaled to the meeting length.
+
+    Duration is the last segment end time; clamped to [4096, MAX_OUTPUT_TOKENS].
+    """
+    duration = max((s.end for s in segments), default=0.0)
+    wanted = math.ceil(duration / 3600 * NOTES_TOKENS_PER_HOUR)
+    return max(NOTES_MIN_TOKENS, min(MAX_OUTPUT_TOKENS, wanted))
 
 
 @dataclass(frozen=True)

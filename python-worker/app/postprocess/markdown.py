@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.postprocess.llm_client import LLMClient, LLMError
 from app.postprocess.llm_env import (
     language_directive,
+    notes_max_tokens,
     resolve_llm_env,
     transcript_text,
     warn,
@@ -62,6 +63,7 @@ def generate_markdown(
         data = client.complete_json(
             system=language_directive(notes_language) + _SYSTEM_PROMPT,
             user=f"Transcript:\n\n{transcript_text(segments, timestamps=True)}",
+            max_tokens=notes_max_tokens(segments),
         )
         return MarkdownNote(
             title=data.get("title", "Untitled"),

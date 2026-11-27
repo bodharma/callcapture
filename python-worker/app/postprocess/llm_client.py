@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 import json
+import sys
 from typing import Any
 
 from openai import OpenAI
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+MAX_OUTPUT_TOKENS = 16384
+
+AI_CUT_OFF_MESSAGE = (
+    "AI notes were cut off — the meeting is too long for one pass; "
+    "rule-based notes were used."
+)
+
+
+def _info(message: str) -> None:
+    """Write an `{"info": ...}` JSON line to stderr (never prompt/transcript text)."""
+    sys.stderr.write(json.dumps({"info": message}, ensure_ascii=False) + "\n")
+    sys.stderr.flush()
 
 
 from dataclasses import dataclass
@@ -61,6 +74,13 @@ class LLMError(Exception):
     """Raised when the LLM endpoint is misconfigured or returns bad output."""
 
 
+class LLMTruncatedError(LLMError):
+    """The model reply was still cut off (finish_reason "length") after a retry."""
+
+    def __init__(self) -> None:
+        super().__init__(AI_CUT_OFF_MESSAGE)
+
+
 class LLMClient:
     """Calls chat-completion models via any OpenAI-compatible endpoint.
 
@@ -89,6 +109,20 @@ class LLMClient:
         Raises:
             LLMError: on API failure or unparseable JSON.
         """
+        budget = max_tokens
+        for attempt in (1, 2):
+            raw, finish = self._request(system, user, budget)
+            if finish != "length":
+                return self._parse_json(raw)
+            if attempt == 1 and budget < MAX_OUTPUT_TOKENS:
+                budget = min(budget * 2, MAX_OUTPUT_TOKENS)
+                _info(f"LLM reply truncated (finish_reason=length); retrying with max_tokens={budget}")
+                continue
+            break
+        raise LLMTruncatedError()
+
+    def _request(self, system: str, user: str, max_tokens: int) -> tuple[str, str | None]:
+        """One chat call; returns (content, finish_reason) and records usage."""
         # OpenRouter returns usage.cost when asked; only request it there.
         extra_body = {"usage": {"include": True}} if self._is_openrouter else {}
         try:
@@ -103,11 +137,13 @@ class LLMClient:
             )
             tokens, cost = _extract_usage(resp)
             record_usage(tokens, cost)
-            raw = resp.choices[0].message.content or ""
+            choice = resp.choices[0]
+            raw = choice.message.content or ""
+            finish = getattr(choice, "finish_reason", None)
         except Exception as exc:  # noqa: BLE001 - surface as our error type
             raise LLMError(f"LLM request failed: {exc}") from exc
-
-        return self._parse_json(raw)
+        _info(f"LLM call: finish_reason={finish} max_tokens={max_tokens} total_tokens={tokens}")
+        return raw, finish
 
     @staticmethod
     def _parse_json(raw: str) -> dict[str, Any]:
