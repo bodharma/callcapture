@@ -109,13 +109,8 @@ struct ContentView: View {
     private var actions: MenuActions {
         let model = appModel
         return MenuActions(
-            record: {
-                Task { @MainActor in
-                    await model.toggleRecording()
-                    // A live meeting opens its floating panel, as the old Live Meeting window did.
-                    if model.state == .recording && model.liveMeetingEnabled { model.showLivePanel() }
-                }
-            },
+            // A live meeting's floating panel opens from the shared start path (AppModel+Recording).
+            record: { Task { @MainActor in await model.toggleRecording() } },
             cancelProcessing: { model.cancelTranscription() },
             downloadLiveModel: {
                 model.liveMeeting.prepareModel(bridge: model.pythonBridge, modelName: model.settingsManager.whisperModel.rawValue)

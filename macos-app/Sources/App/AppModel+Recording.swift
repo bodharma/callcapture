@@ -30,6 +30,9 @@ extension AppModel {
                 self.state = .idle
                 self.lastError = nil
                 await self.startRecording()
+                // A live meeting opens its floating panel, whether the menu or the web
+                // started it, as the old Live Meeting window did.
+                if self.state == .recording && self.liveMeetingEnabled { self.showLivePanel() }
             case .stopping:
                 await self.stopRecording()
             }
