@@ -53,6 +53,10 @@ export function TranscriptionPane({ settings, online }: PaneProps) {
           <ProviderKeys settings={settings} />
         </>
       )}
+      {transcription.engine !== "remote" && settings.aiNotes.provider === "local" && (
+        // The app's wording, under the condition its API Keys section used.
+        <p className="pane-text">No API keys required for current configuration.</p>
+      )}
       <Section title="Speakers and emotion">
         <ModelDownloadRow
           label="Speaker models"

@@ -37,6 +37,18 @@ describe("Settings", () => {
     }
   });
 
+  it("says no API keys are needed when transcription and notes both run on this Mac", async () => {
+    const caption = "No API keys required for current configuration.";
+    settingsApi({}, settingsFixture((s) => (s.aiNotes.provider = "local")));
+    const { unmount } = renderAt("/settings/transcription");
+    expect(await screen.findByText(caption)).toBeTruthy();
+    unmount();
+    settingsApi();
+    renderAt("/settings/transcription");
+    await screen.findByRole("heading", { level: 1, name: "Transcription" });
+    expect(screen.queryByText(caption)).toBeNull();
+  });
+
   it("lists models by live cost per hour, only JSON-capable ones until the filter is cleared", async () => {
     settingsApi();
     renderAt("/settings/ai-notes");
