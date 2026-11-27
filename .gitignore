@@ -56,3 +56,8 @@ CallCapture-*.zip
 p12_password.txt
 web/node_modules/
 web/.vitest/
+
+# Playwright smoke output (web) and the Playwright MCP scratch folder
+web/test-results/
+web/playwright-report/
+.playwright-mcp/

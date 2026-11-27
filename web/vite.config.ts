@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { configDefaults } from "vitest/config";
 
 // Dev loop: run the CallCapture app, then
 //   CALLCAPTURE_PORT=<port of the app's loopback server> npm run dev
@@ -37,6 +38,11 @@ export default defineConfig(({ command }) => {
   return {
     plugins: [react()],
     server: proxy ? { proxy: { "/api": proxy, "/login": proxy } } : {},
-    test: { environment: "jsdom", setupFiles: ["./src/test/setup.ts"] },
+    test: {
+      environment: "jsdom",
+      setupFiles: ["./src/test/setup.ts"],
+      // The Playwright smoke (`npm run e2e`) is not a Vitest suite.
+      exclude: [...configDefaults.exclude, "e2e/**"],
+    },
   };
 });

@@ -28,7 +28,7 @@ jobs:
         run: pytest
 
   web:
-    name: Web UI (build & vitest)
+    name: Web UI (build, vitest & Playwright smoke)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -43,6 +43,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npx vitest run
+      # The smoke serves the build above through a fake app (web/e2e/fixture-server.ts).
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
 
   macos-app:
     name: macOS app (swift build & test)
