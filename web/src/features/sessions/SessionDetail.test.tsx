@@ -223,6 +223,26 @@ describe("SessionDetail", () => {
     expect(await screen.findByRole("button", { name: "Transcribe" })).toBeTruthy();
   });
 
+  it("says why re-processing is off before any click, and re-enables when the app is back online", async () => {
+    const reason = "Offline — this needs an internet connection. This session uses cloud transcription.";
+    let blocked: string | undefined = reason;
+    const fetchFn = api(sessionFixture(), {
+      "/api/sessions/S1": () => sessionFixture({ reprocessBlocked: blocked }),
+    });
+    renderAt("/sessions/S1");
+    const button = (await screen.findByRole("button", { name: "Re-process" })) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    const shown = screen.getByText(reason);
+    expect(button.getAttribute("aria-describedby")).toBe(shown.id);
+    blocked = undefined;
+    act(() => FakeEventSource.latest().emit("connectivity", { online: true }));
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Re-process" }) as HTMLButtonElement).disabled).toBe(false),
+    );
+    expect(screen.queryByText(reason)).toBeNull();
+    expect(calls(fetchFn)).not.toContain("POST /api/sessions/S1/reprocess");
+  });
+
   it("pauses playback as soon as a recording starts", async () => {
     api();
     const { container } = renderAt("/sessions/S1");

@@ -16,6 +16,9 @@ export function SessionActions({ session }: { session: SessionDTO }) {
   const reprocess = useReprocess(session.id);
   const vault = useSaveToVault(session.id);
   const label = reprocessLabel(session.status);
+  const reasonId = useId();
+  // The app's own sentence, shown before any click while the action can't run.
+  const blocked = label ? session.reprocessBlocked : undefined;
 
   return (
     <div className="actions">
@@ -24,7 +27,8 @@ export function SessionActions({ session }: { session: SessionDTO }) {
           <button
             type="button"
             className="btn"
-            disabled={reprocess.isPending}
+            disabled={reprocess.isPending || blocked !== undefined}
+            aria-describedby={blocked ? reasonId : undefined}
             onClick={() => {
               vault.reset();
               reprocess.mutate();
@@ -47,6 +51,11 @@ export function SessionActions({ session }: { session: SessionDTO }) {
           Save to vault
         </button>
       </div>
+      {blocked && (
+        <p id={reasonId} className="actions-reason">
+          {blocked}
+        </p>
+      )}
       {reprocess.isError && (
         <p className="notice notice--warn" role="alert">
           {label ?? "Processing"} didn't start. {errorText(reprocess.error)}

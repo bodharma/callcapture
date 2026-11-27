@@ -38,6 +38,11 @@ export interface SessionDTO {
   hasLiveMap: boolean;
   /** 0 to 1 while the session transcribes; absent otherwise. */
   progress?: number;
+  /**
+   * Why Transcribe / Re-process / Retry can't run now (offline with cloud
+   * transcription), in the app's words. Detail answers only; absent otherwise.
+   */
+  reprocessBlocked?: string;
 }
 
 /** One choice for a select; the app sends the values and labels (`GET /api/sessions/options`). */

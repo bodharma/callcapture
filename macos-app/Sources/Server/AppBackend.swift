@@ -42,6 +42,9 @@ protocol AppBackend: SettingsBackend {
     func openNote(id: String) async throws
     /// 0…1 while the session transcribes, nil otherwise.
     func transcriptionProgress(id: String) async -> Double?
+    /// Why Transcribe / Re-process / Retry is off right now because the network is
+    /// needed (`ReprocessPolicy.offlineReason`), so the UI can say so before a click.
+    func reprocessOfflineReason(for session: Session) async -> String?
 
     // MARK: Events, recording and the live view
 

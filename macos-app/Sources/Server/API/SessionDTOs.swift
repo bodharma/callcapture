@@ -35,9 +35,13 @@ struct SessionDTO: Encodable {
     let hasLiveMap: Bool
     /// 0…1 while the session transcribes; omitted otherwise.
     let progress: Double?
+    /// Why Transcribe / Re-process / Retry can't run now (offline, cloud engine);
+    /// detail answers only, omitted otherwise.
+    let reprocessBlocked: String?
 
-    init(_ session: Session, progress: Double? = nil) {
+    init(_ session: Session, progress: Double? = nil, reprocessBlocked: String? = nil) {
         self.progress = progress
+        self.reprocessBlocked = reprocessBlocked
         id = session.id
         title = session.title
         sourceApp = session.sourceApp

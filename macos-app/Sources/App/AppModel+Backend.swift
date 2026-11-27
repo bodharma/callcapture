@@ -14,8 +14,6 @@ final class AppModelBackend: AppBackend {
     private struct Reference { weak var model: AppModel? }
     private let reference = OSAllocatedUnfairLock(uncheckedState: Reference())
 
-    static let processableStatuses: Set<String> = ["completed", "transcribed", "error", "failed", "interrupted"]
-
     /// Called once from `AppModel.init`; the backend never keeps the model alive.
     func attach(_ model: AppModel) {
         reference.withLockUnchecked { $0.model = model }
@@ -70,7 +68,7 @@ final class AppModelBackend: AppBackend {
 
     @MainActor
     private static func reprocessProblem(_ session: Session, model: AppModel) -> String? {
-        guard processableStatuses.contains(session.status) else {
+        guard ReprocessPolicy.processableStatuses.contains(session.status) else {
             return "This session can't be processed while it is \(session.status)."
         }
         // Processing takes over AppModel.state; during a recording that would leave the
@@ -81,11 +79,7 @@ final class AppModelBackend: AppBackend {
         guard model.state != .transcribing else {
             return "Another session is being processed. Try again when it finishes."
         }
-        let engine = JobRequest.transcribe(session: session, settings: model.settingsManager).engine
-        if let reason = NetworkPolicy.blockReason(engine: engine, isOnline: model.connectivity.isOnline) {
-            return "\(reason) This session uses cloud transcription."
-        }
-        return nil
+        return offlineReason(session, model: model)
     }
 
     func saveToVault(id: String) async throws -> URL {
@@ -150,6 +144,18 @@ final class AppModelBackend: AppBackend {
         await MainActor.run {
             _ = NSWorkspace.shared.open(URL(fileURLWithPath: path))
         }
+    }
+
+    func reprocessOfflineReason(for session: Session) async -> String? {
+        guard let model else { return nil }
+        return await MainActor.run { Self.offlineReason(session, model: model) }
+    }
+
+    @MainActor
+    private static func offlineReason(_ session: Session, model: AppModel) -> String? {
+        let engine = JobRequest.transcribe(session: session, settings: model.settingsManager).engine
+        return ReprocessPolicy.offlineReason(
+            status: session.status, engine: engine, isOnline: model.connectivity.isOnline)
     }
 
     func transcriptionProgress(id: String) async -> Double? {

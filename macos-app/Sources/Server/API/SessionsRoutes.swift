@@ -159,7 +159,8 @@ private func addActionRoutes(to router: Router<BasicRequestContext>, backend: an
 /// The record with the live progress while it transcribes.
 func detailDTO(_ session: Session, _ backend: any AppBackend) async -> SessionDTO {
     let progress = session.status == "transcribing" ? await backend.transcriptionProgress(id: session.id) : nil
-    return SessionDTO(session, progress: progress)
+    let blocked = await backend.reprocessOfflineReason(for: session)
+    return SessionDTO(session, progress: progress, reprocessBlocked: blocked)
 }
 
 /// Resolves `:id` to a session (404 JSON if unknown) and maps any thrown error to JSON.

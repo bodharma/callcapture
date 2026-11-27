@@ -39,6 +39,17 @@ function updateSystem(client: QueryClient, change: SystemChange) {
   client.setQueryData<SystemStatus>(keys.system, next);
 }
 
+/**
+ * Refetches open session details (["session", id] only, not their transcripts or
+ * peaks): the app's re-process block reason depends on the network and on the
+ * configured engine.
+ */
+function invalidateSessionDetails(client: QueryClient) {
+  void client.invalidateQueries({
+    predicate: (query) => query.queryKey.length === 2 && query.queryKey[0] === keys.session("")[0],
+  });
+}
+
 /** Applies `change` to the cached live view, if it is the meeting being shown. */
 function updateLive(client: QueryClient, change: (live: LiveSnapshot) => LiveSnapshot) {
   client.setQueryData<LiveSnapshot | { active: false }>(liveKeys.current, (live) =>
@@ -69,6 +80,7 @@ export function applyEvent(client: QueryClient, event: ServerEvent, resync: bool
       return;
     case "connectivity":
       updateSystem(client, { online: event.online });
+      invalidateSessionDetails(client);
       return;
     case "sessionChanged":
       void invalidateSession(client, event.id);
@@ -101,6 +113,7 @@ export function applyEvent(client: QueryClient, event: ServerEvent, resync: bool
       return;
     case "settings":
       void client.invalidateQueries({ queryKey: settingsKeys.settings });
+      invalidateSessionDetails(client);
       return;
     case "progress":
       // Written in place: a refetch four times a second would be wasteful.

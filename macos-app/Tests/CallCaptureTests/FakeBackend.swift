@@ -21,6 +21,7 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     private var progress: [String: Double] = [:]
     private var vaultDirectory: URL?
     private var status = SystemStatus(online: true, recording: false, version: "test")
+    private var defaultEngine = "local_whisper"
     private var settingsSide: FakeSettings?
     /// The hub the API routes publish to; tests subscribe to it directly.
     let events = EventHub()
@@ -54,6 +55,8 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     func failDelete(with error: BackendError?) { lock.withLock { deleteFailure = error } }
     func saveVault(into directory: URL?) { lock.withLock { vaultDirectory = directory } }
     func setStatus(_ value: SystemStatus) { lock.withLock { status = value } }
+    /// The engine a session without `engineUsed` would be processed with.
+    func setDefaultEngine(_ engine: String) { lock.withLock { defaultEngine = engine } }
     func setOnline(_ online: Bool) {
         lock.withLock { status = SystemStatus(online: online, recording: status.recording, version: status.version) }
     }
@@ -151,6 +154,13 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     }
 
     func transcriptionProgress(id: String) async -> Double? { lock.withLock { progress[id] } }
+
+    /// The production rule over the fake's online flag and default engine.
+    func reprocessOfflineReason(for session: Session) async -> String? {
+        let (online, engine) = lock.withLock { (status.online, defaultEngine) }
+        return ReprocessPolicy.offlineReason(
+            status: session.status, engine: session.engineUsed ?? engine, isOnline: online)
+    }
 
     // MARK: SettingsBackend
 
