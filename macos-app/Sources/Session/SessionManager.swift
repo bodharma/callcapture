@@ -70,6 +70,9 @@ final class SessionManager {
         category: "SessionManager"
     )
 
+    /// Kept on a session whose processing run the previous app run never finished.
+    static let processingStoppedMessage = "Processing stopped when the app quit."
+
     private let database: AppDatabase
     private let storageDirectory: URL
 
@@ -91,27 +94,44 @@ final class SessionManager {
         loadRecentSessions()
     }
 
-    /// Marks any session left in `recording` state as `interrupted`.
+    /// Settles sessions a previous run left mid-way (crash, force quit, power loss).
+    /// Called once at launch, before anything can be recording or processing.
     ///
-    /// A session stuck in `recording` means a previous run was killed
-    /// mid-capture (crash, force quit, power loss) before `finalizeSession`
-    /// ran. Without this, such sessions render as perpetually recording.
-    /// Called once at launch.
+    /// - `recording` (killed before `finalizeSession`) becomes `interrupted`; without
+    ///   this such sessions render as perpetually recording.
+    /// - `transcribing` goes back the way a cancelled run does: `transcribed` when a
+    ///   transcript from an earlier run exists, else `completed`, with
+    ///   `processingStoppedMessage`, so the session can be run again or deleted.
     private func reconcileInterruptedSessions() {
         do {
-            let count = try database.dbPool.write { db in
-                try SessionRecord
+            let (interrupted, stopped) = try database.dbPool.write { db -> (Int, Int) in
+                let interrupted = try SessionRecord
                     .filter(Column("status") == "recording")
                     .updateAll(db, Column("status").set(to: "interrupted"))
+                let processing = try SessionRecord.filter(Column("status") == "transcribing").fetchAll(db)
+                for var record in processing {
+                    record.status = Self.statusAfterStoppedProcessing(transcriptPath: record.transcriptRawPath)
+                    record.errorMessage = Self.processingStoppedMessage
+                    try record.update(db)
+                }
+                return (interrupted, processing.count)
             }
-            if count > 0 {
-                Self.logger.warning(
-                    "Reconciled \(count) interrupted session(s) left in 'recording' state"
-                )
+            if interrupted > 0 {
+                Self.logger.warning("Reconciled \(interrupted) interrupted session(s) left in 'recording' state")
+            }
+            if stopped > 0 {
+                Self.logger.warning("Reconciled \(stopped) session(s) left in 'transcribing' state")
             }
         } catch {
             Self.logger.error("Failed to reconcile interrupted sessions: \(error)")
         }
+    }
+
+    private static func statusAfterStoppedProcessing(transcriptPath: String?) -> String {
+        guard let transcriptPath, !transcriptPath.isEmpty,
+            FileManager.default.fileExists(atPath: transcriptPath)
+        else { return "completed" }
+        return "transcribed"
     }
 
     /// Creates a new session with a generated title and audio file path.
