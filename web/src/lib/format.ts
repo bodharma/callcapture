@@ -21,6 +21,27 @@ export function usd(value: number): string {
   return `$${text}`;
 }
 
+/** One cost part as the app's `CostFormat.usd` writes it: 4 decimals, "—" when unknown. */
+function costPart(value: number | undefined): string {
+  return value === undefined ? "—" : `$${value.toFixed(4)}`;
+}
+
+/**
+ * The session cost as the app's detail view showed it:
+ * "Transcription $0.1000 · Processing $0.0200 · Total $0.1200". Undefined when
+ * neither part is known (the app hid the row then).
+ */
+export function costSplit(costs: {
+  transcription?: number;
+  processing?: number;
+  total?: number;
+}): string | undefined {
+  const { transcription, processing } = costs;
+  if (transcription === undefined && processing === undefined) return undefined;
+  const total = costs.total ?? (transcription ?? 0) + (processing ?? 0);
+  return `Transcription ${costPart(transcription)} · Processing ${costPart(processing)} · Total ${costPart(total)}`;
+}
+
 /** A signed fixed-point label, like the app's: 0.42 → "+0.42", -0.27 (1 digit) → "-0.3"; never "-0". */
 export function signed(value: number, digits = 2): string {
   const text = Math.abs(value).toFixed(digits);

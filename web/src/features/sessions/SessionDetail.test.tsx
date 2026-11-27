@@ -68,7 +68,7 @@ describe("SessionDetail", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Weekly sync, release plan" })).toBeTruthy();
     expect(screen.getByText("46 min")).toBeTruthy();
     expect(screen.getByText("Ukrainian")).toBeTruthy();
-    expect(screen.getByText("$0.12")).toBeTruthy();
+    expect(screen.getByText("Transcription $0.1000 · Processing $0.0200 · Total $0.1200")).toBeTruthy();
     expect(
       await screen.findByText("The team agreed to ship on Friday if staging is green by Thursday."),
     ).toBeTruthy();

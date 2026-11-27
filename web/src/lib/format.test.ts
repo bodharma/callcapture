@@ -19,6 +19,16 @@ describe("format", () => {
     expect(format.usd(0)).toBe("$0.00");
   });
 
+  it("costSplit lists transcription, processing and total like the app, with — for a missing part", () => {
+    expect(format.costSplit({ transcription: 0.1, processing: 0.02, total: 0.12 })).toBe(
+      "Transcription $0.1000 · Processing $0.0200 · Total $0.1200",
+    );
+    expect(format.costSplit({ transcription: 0.0035, total: 0.0035 })).toBe(
+      "Transcription $0.0035 · Processing — · Total $0.0035",
+    );
+    expect(format.costSplit({})).toBeUndefined();
+  });
+
   it("signed shows a sign and fixed decimals, never -0", () => {
     expect(format.signed(0.42)).toBe("+0.42");
     expect(format.signed(-0.2)).toBe("-0.20");

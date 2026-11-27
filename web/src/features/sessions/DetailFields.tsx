@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { errorText } from "../../api/client";
 import type { SessionDetailsPatch, SessionDTO, SessionOption } from "../../api/types";
-import { languageName, length, recordedAt, usd } from "../../lib/format";
+import { costSplit, languageName, length, recordedAt } from "../../lib/format";
 import { useSessionOptions, useUpdateDetails } from "./api";
 
 type EditableField = keyof SessionDetailsPatch;
@@ -18,7 +18,7 @@ export function DetailFields({ session }: { session: SessionDTO }) {
   const fields: [string, string][] = [["Recorded", recordedAt(new Date(session.startedAt))]];
   if (session.durationSec !== undefined) fields.push(["Length", length(session.durationSec)]);
   if (session.sourceApp) fields.push(["Source", session.sourceApp]);
-  const cost = session.costs.total !== undefined ? usd(session.costs.total) : undefined;
+  const cost = costSplit(session.costs);
 
   return (
     <dl className="fields">
