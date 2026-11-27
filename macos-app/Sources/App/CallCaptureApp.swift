@@ -37,24 +37,10 @@ struct CallCaptureApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Window("Sessions", id: "sessions") {
-            SessionListView()
-                .environment(appModel)
-        }
-
-        Window("Live Meeting", id: "live-meeting") {
-            LiveMeetingWorkspace(model: appModel.liveMeeting.model,
-                                 processingStatus: appModel.liveMeeting.status,
-                                 microphoneEnabled: appModel.liveMicrophoneEnabled)
-        }
-
+        // Sessions, Settings and the live view are the local web UI (archive window,
+        // browser, live panel; see WebWindows.swift). Diagnostics stays native.
         Window("Diagnostics", id: "diagnostics") {
             DiagnosticsView()
-                .environment(appModel)
-        }
-
-        Window("Settings", id: "settings") {
-            SettingsView()
                 .environment(appModel)
         }
     }
@@ -350,8 +336,8 @@ final class AppModel {
     ///
     /// Builds a `JobRequest` from the session and current settings,
     /// runs the worker, then updates the session record with result paths.
-    /// Callable from `stopRecording` (auto-transcribe) and from
-    /// `SessionDetailView` (manual transcribe button).
+    /// Callable from `stopRecording` (auto-transcribe) and from `startTranscription`
+    /// (the web UI's Transcribe / Re-process / Retry).
     ///
     /// - Parameter session: The session to transcribe.
     func transcribeSession(_ session: Session) async {
@@ -574,8 +560,8 @@ final class AppModel {
                 }
                 captureManager.liveBuffer = liveMeeting.buffer
             } else { captureManager.liveBuffer = nil }
+            // Web players pause on the `recording` event this publishes.
             playbackBlocked = true
-            SessionAudioPlayer.pauseAll()
             try await captureManager.startCapture(
                 outputPath: outputURL,
                 outputDeviceUID: output.uid,

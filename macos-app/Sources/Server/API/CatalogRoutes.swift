@@ -3,7 +3,7 @@ import Hummingbird
 
 /// `GET /api/catalog` → `CatalogDTO`.
 /// `POST /api/catalog/refresh` with an optional `{"force": Bool}` (default true; false
-/// keeps the 24 h cache, like opening the SwiftUI settings) → `CatalogDTO`, or 409
+/// keeps the 24 h cache, like opening the Settings page) → `CatalogDTO`, or 409
 /// `{"error":"offline"}` with the app's wording. A failed refresh still answers 200:
 /// the cached models stay and `problem` says why.
 func addCatalogRoutes(to router: Router<BasicRequestContext>, backend: any AppBackend) {

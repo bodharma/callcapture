@@ -41,9 +41,21 @@ test("opens a session from the list and seeks the audio from a transcript line",
   await page.getByRole("navigation", { name: "Session sections" }).getByRole("link", { name: "Transcript" }).click();
   await page.getByRole("button", { name: "Play from 00:12" }).click();
 
-  const position = () => page.locator("audio").evaluate((audio: HTMLAudioElement) => audio.currentTime);
-  await expect.poll(position).toBeGreaterThanOrEqual(12);
-  expect(await position()).toBeLessThan(24);
+  // A seek on media that never loaded still reports the target as currentTime, so
+  // also require loaded metadata and the file's real length.
+  const media = () =>
+    page.locator("audio").evaluate((audio: HTMLAudioElement) => ({
+      loaded: audio.readyState >= HTMLMediaElement.HAVE_METADATA,
+      duration: Math.round(audio.duration),
+      time: audio.currentTime,
+    }));
+  await expect.poll(async () => {
+    const { loaded, time } = await media();
+    return loaded && time >= 12;
+  }).toBe(true);
+  const { duration, time } = await media();
+  expect(duration).toBe(30);
+  expect(time).toBeLessThan(24);
   await expect(page.locator("li.line--active")).toContainText("Staging has to be green by Thursday.");
 });
 

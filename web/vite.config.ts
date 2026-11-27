@@ -8,9 +8,9 @@ import { configDefaults } from "vitest/config";
 // The dev server proxies /api and /login to the app. The app's Host/Origin
 // guard only accepts its own 127.0.0.1:<port>, so the proxy rewrites Host
 // (changeOrigin) and, when present, the Origin header of proxied requests.
-// Sign in once from the dev origin so the session cookie is set for it: open
-//   http://localhost:5173/login?token=<token>&next=/
-// with the token from the app's login URL.
+// Sign in with the menu's "Open in browser", then open the dev server on the same
+// host, http://127.0.0.1:5173 (`npm run dev -- --host 127.0.0.1`): cookies are per
+// host, not per port, so the app's session cookie comes along and is proxied.
 const proxyFor = (target: string) => ({
   target,
   changeOrigin: true,

@@ -26,7 +26,7 @@ protocol SettingsBackend: Sendable {
     func startModelDownload(_ kind: ModelDownloadKind) async throws
 }
 
-/// The secrets the SwiftUI settings have a field for. Each maps to one Keychain account.
+/// The secrets the settings have a field for. Each maps to one Keychain account.
 enum SecretKey: String, CaseIterable, Sendable {
     case openrouter
     case assemblyai

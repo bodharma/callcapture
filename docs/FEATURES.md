@@ -90,6 +90,37 @@ speakers and capture health remain open.
 | In-app updates and model management | Remove installation and disk-space surprises | Updates preserve sessions/settings; model downloads resume and verify integrity before use |
 | Measured resource use and per-session usage | Make speed and cost claims credible | Report model, hardware, duration, peak memory, latency and estimated versus provider-reported cost separately |
 
+## Implemented locally, unreleased (2026-11-27, branch feat/hybrid-ui)
+
+Spec: [hybrid UI and signal-room redesign](superpowers/specs/2026-11-26-hybrid-ui-design.md);
+plan: [plan](superpowers/plans/2026-11-26-hybrid-ui.md). Not pushed or released.
+
+- **One web UI, three places.** Sessions, Settings and the live meeting view are a
+  React app served by a loopback server inside the app. It shows in the archive
+  window, in the floating live panel, and in the browser ("Open in browser").
+- **Sessions.** List and search across every session; the detail page has the
+  waveform tape with markers, click-to-seek playback with speed, the full transcript,
+  speaker rename, the note, insights, warnings, the cost split, editable type and
+  languages, exports, Save to vault, Open note, re-process with progress, and delete.
+  Offline, Re-process is disabled with the app's reason before any click.
+- **Settings.** Every former settings control, including the model table and
+  write-only API keys; folder pickers open the native panel.
+- **Live view.** The full live map at `/live` and saved maps at `/sessions/<id>/live`;
+  a compact layout in the floating panel. Changes arrive over server-sent events.
+- **Menu bar popover.** Restyled to the signal-room boards: channels with status text,
+  Record/Stop by the same rule as the web, this meeting's choices and live map setup,
+  recent sessions, the offline line, and Open archive / Settings / Open in browser /
+  Open live panel. The REC mark is the only glitch and stays still with Reduce Motion.
+- **Removed.** The SwiftUI Sessions, Settings and Live Meeting windows, after a
+  feature-by-feature check against the web UI. Diagnostics stays native.
+- **Security.** Loopback only; a session cookie from a single-use login token; Host
+  and Origin checks; keys are never sent to the web UI.
+
+**Receipts.** Swift 346 tests / 68 suites; Vitest 115; Playwright smoke 4 flows
+(Chromium, against a fake app); Python 254 (unchanged).
+**Not verified:** the real app (windows, panel, browser sign-in, folder panels,
+downloads, playback in WKWebView) — see the manual checks in [PENDING.md](PENDING.md).
+
 ## Implemented locally, unreleased (2026-11-26, branch feat/smart-audio-defaults)
 
 Committed on branch feat/smart-audio-defaults (5 commits, not yet pushed or released);

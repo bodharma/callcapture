@@ -4,7 +4,7 @@ import os
 private let settingsLogger = Logger(subsystem: "com.callcapture.app", category: "SettingsAPI")
 
 /// Settings, secrets, the model catalog, folder choosing and model downloads for the
-/// web API. Settings live on the main actor (the SwiftUI window edits the same
+/// web API. Settings live on the main actor (the menu bar popover edits the same
 /// `SettingsManager`), so every read and write hops there; apply and snapshot happen in
 /// one main-actor step so the answer shows exactly what was applied.
 @available(macOS 14.2, *)

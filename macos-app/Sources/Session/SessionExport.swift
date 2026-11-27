@@ -1,6 +1,6 @@
 import Foundation
 
-/// Export and Save-to-vault logic shared by the SwiftUI detail view and the web API.
+/// Export and Save-to-vault logic behind the web API.
 enum SessionExport {
     enum Format: String, CaseIterable, Sendable {
         case md, txt, json

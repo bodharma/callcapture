@@ -7,7 +7,7 @@ import os
 /// Database reads go straight to GRDB (thread-safe) and file reads use the
 /// shared defaults in `AppBackend`. Recording state, settings, the live
 /// meeting, the observed session list and AppKit calls hop to the main actor.
-/// The guards mirror what the SwiftUI detail view disables, because the API
+/// The guards mirror what the old SwiftUI detail view disabled, because the API
 /// has to enforce them itself.
 @available(macOS 14.2, *)
 final class AppModelBackend: AppBackend {

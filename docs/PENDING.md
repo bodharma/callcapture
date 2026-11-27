@@ -1,6 +1,6 @@
 # Pending Work
 
-Open threads / parked items. Last updated 2026-11-26.
+Open threads / parked items. Last updated 2026-11-27.
 
 See [the prioritised feature backlog](FEATURES.md) for the competitive upgrade
 roadmap, including the verified transcription, speaker-label, output-profile and
@@ -8,6 +8,49 @@ vault-export correctness gaps. Repair those as the foundation for the main
 product priority: live transcription and conversation/topic navigation.
 
 ## Features
+
+### Hybrid UI: native shell, local web UI (branch feat/hybrid-ui)
+- **Status:** built and tested on branch feat/hybrid-ui (unreleased, not pushed). Sessions, Settings and the live view are the local web UI; the old SwiftUI windows are gone; the menu bar popover is restyled. Details: [FEATURES.md](FEATURES.md#implemented-locally-unreleased-2026-11-27-branch-feathybrid-ui) and [DEVELOPMENT.md](DEVELOPMENT.md#architecture-native-shell-local-web-ui).
+- **Install:** use `Scripts/build-app.sh` (it rebuilds the frozen worker and the web UI). The bundle assembled during the Task 9 check reused an older frozen worker; don't install that one.
+
+#### Manual checks (after installing)
+Nothing below was run in the real app; the suites use fakes.
+- No window opens at launch. Diagnostics is now the only window scene.
+- Popover: the bundled fonts show, the switches and the progress bar use the signal-room tints (offscreen snapshots drew them grey), and Cyrillic titles fall back to the system font cleanly.
+- Popover: the REC mark jitters now and then, and stays still with Reduce Motion on.
+- Popover entries: Open archive shows `/sessions`; the gear shows Settings; a recent session opens its page; Open in browser signs in; Open live panel shows the compact view. All are disabled with "Local server isn't running." when the server didn't start.
+- Start with the live map on opens the live panel, as the old Live Meeting window did.
+- The archive window, the live panel and the browser all show the UI.
+- Playback in the archive window: a seek before the audio has loaded lands on the right time; audio stops when you switch sessions.
+- Export downloads go through a save panel in the archive window (WKDownload).
+- Choose… for the output folder and the vault, from the archive window and from the browser: the panel comes to the front; hold it open for more than 60 s in the archive window.
+- Download the speaker and emotion models from the web UI.
+- Test connection with a real OpenRouter key; Refresh the model list online and offline.
+- A setting changed in one host (browser) shows in the other (archive window) without a reload.
+- The browser may offer to save an API key in its password manager. Decide whether that needs a change.
+- Offline with a cloud session: Re-process is disabled with the reason, and comes back when the Mac is online, without a reload.
+- The session header shows the cost split; "No API keys required…" shows for local transcription and local notes.
+- A live meeting end to end, in the panel and in the browser.
+- Dev loop: sign in with "Open in browser", then the Vite dev server at `http://127.0.0.1:5173` (checked against the fake app only).
+
+#### Known differences from the old windows
+Accepted on purpose; listed so nobody "fixes" them by accident.
+- Per-session duration and cost moved from the list rows to the session header. The list shows date, title and state, as the canvas does.
+- Playback pauses on the app's `recording` event instead of at once. The delay is milliseconds.
+- The "N speakers" count isn't shown; "Who spoke" lists every speaker.
+- The end time isn't shown; the length is.
+
+#### Known limitations
+- More than about five browser tabs stall: each tab keeps one events stream, and HTTP/1.1 allows six connections per host.
+- The live view's ⌘⇧N / ⌘⇧J / ⌘⇧L shortcuts work in the app's windows; browsers keep them for themselves.
+- The floating panel sets `sharingType = .none`, but ScreenCaptureKit on macOS 15.4+ ignores it. Don't promise it is hidden from screen sharing.
+
+#### Follow-ups (from the build log; not fixed)
+- `PythonBridge.healthCheck()` calls `waitUntilExit()` on a Swift-concurrency thread; the Diagnostics probe could hang a pool thread (Low–Medium). The `which` fallback in `findPython3` has the same pattern (Low). The batch path uses a termination handler and is safe.
+- `PythonBridge`: the heartbeat is dead code (stdin closes before heartbeats); a failed request write doesn't terminate the child; a worker death may call `fail()` twice (two gap entries).
+- Stop is refused while the live speech model downloads (menu and web). The reason says "cancel it from the menu", but Cancel download is hidden while recording.
+- Resolved by removing the SwiftUI detail view: it allowed re-processing during a recording, which took over the app state. The web API refuses that with 409.
+- `ConversationAnalysis.hasContent` is now used only by its tests (it decided the old insights panel).
 
 ### Live model catalog and offline behaviour
 - **Status:** implemented on branch feat/live-model-catalog (unreleased). Details: [FEATURES.md](FEATURES.md#implemented-locally-unreleased-2026-11-26-branch-featlive-model-catalog).

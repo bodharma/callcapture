@@ -29,7 +29,7 @@ struct LiveView: Sendable, Equatable {
 /// `GET /api/live` and `GET /api/sessions/:id/live`. Everything the SwiftUI live
 /// workspace shows, without the audio path or the model's internal bookkeeping.
 struct LiveViewDTO: Encodable {
-    /// The notes languages the SwiftUI workspace offers while Auto is unresolved.
+    /// The notes languages offered while Auto is unresolved (as the old SwiftUI workspace did).
     static let notesLanguageChoices = ["en", "uk", "pl", "de", "fr", "es"]
 
     let active: Bool

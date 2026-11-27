@@ -165,7 +165,7 @@ struct ConversationAnalysis: Decodable, Sendable {
 
     /// True when there is anything worth showing in the insights panel.
     ///
-    /// Mirrors exactly the fields `ConversationInsightsView` renders — speakers,
+    /// Mirrors the fields the old SwiftUI insights panel rendered — speakers,
     /// overall sentiment, recommended actions, and action items. Insight prose
     /// (summary/dynamics/outline/…) is shown in the Markdown note, not this panel,
     /// so an insights block carrying only prose intentionally leaves this false.

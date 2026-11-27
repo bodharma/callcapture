@@ -2,7 +2,7 @@ import Foundation
 
 // JSON shapes of the sessions API (camelCase keys, ISO 8601 dates). Optional
 // fields are omitted when absent unless noted. Speaker names are applied here,
-// the way the SwiftUI views apply them.
+// the way the notes and exports apply them.
 
 struct SessionDTO: Encodable {
     struct Costs: Encodable {

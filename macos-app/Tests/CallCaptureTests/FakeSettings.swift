@@ -33,7 +33,7 @@ final class FakeSettings: @unchecked Sendable {
 
     // MARK: Test controls
 
-    /// Reads or changes the manager directly, as the SwiftUI window would.
+    /// Reads or changes the manager directly, as a native change (the popover) would.
     func withManager<T>(_ body: (SettingsManager) throws -> T) rethrows -> T { try lock.withLock { try body(manager) } }
     /// What the credential store holds (the stand-in for the Keychain).
     var storedSecrets: [String: String] { lock.withLock { store.values } }

@@ -47,7 +47,7 @@ extension AppModelBackend {
         return .done
     }
 
-    /// Asks for a folder like the SwiftUI workspace's Export button, then writes the map.
+    /// Asks for a folder (NSOpenPanel, as the old live workspace's Export did), then writes the map.
     private func export(_ target: LiveTarget, model: AppModel, audioPath: String?) async throws -> LiveActionOutcome {
         // Fail before showing a panel when there is nothing to export.
         _ = try await MainActor.run { try Self.liveModel(target, app: model, audioPath: audioPath) }
@@ -100,7 +100,7 @@ extension AppModelBackend {
             microphoneEnabled: app.liveMicrophoneEnabled, speechRunning: controller.isRunning)
     }
 
-    /// As the SwiftUI sheet decides it for a saved map.
+    /// Whether a saved map's recording kept a microphone stem.
     private static func hasMicTrack(_ session: Session) -> Bool {
         FileManager.default.fileExists(
             atPath: URL(fileURLWithPath: session.audioPath).deletingPathExtension().path + "_mic.wav")
