@@ -65,6 +65,26 @@ describe("Regenerate AI notes", () => {
     expect(calls(fetchFn)).not.toContain("POST /api/sessions/S1/regenerate-notes");
   });
 
+  it("asks for the OpenRouter key before any click when the notes model needs one", async () => {
+    const reason = "Add an OpenRouter API key in Settings → AI notes to regenerate notes.";
+    api(sessionFixture({ regenerateBlocked: reason }));
+    renderAt("/sessions/S1");
+    const button = await regenerateButton();
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute("aria-describedby")).toBe(screen.getByText(reason).id);
+  });
+
+  it("points a run cut short by a quit to Regenerate AI notes, not Re-process", async () => {
+    api(sessionFixture({ status: "transcribed", hasTranscript: true, error: "Processing stopped when the app quit." }));
+    renderAt("/sessions/S1");
+    const alert = await screen.findByText(/The last processing run didn't finish/);
+    expect(alert.textContent).toBe(
+      "The last processing run didn't finish. Processing stopped when the app quit. " +
+        "Use Regenerate AI notes to remake the notes from the saved transcript.",
+    );
+    expect(alert.textContent).not.toContain("Re-process");
+  });
+
   it("says a shared reason once, for both buttons", async () => {
     api(sessionFixture({ reprocessBlocked: OTHER_RUN, regenerateBlocked: OTHER_RUN }));
     renderAt("/sessions/S1");

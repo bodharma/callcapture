@@ -139,23 +139,31 @@ def analyze_insights(
     emotion: dict | None = None,
     notes_language: str = "auto",
     warnings: list[str] | None = None,
+    fallback_reasons: list[str] | None = None,
 ) -> Insights | None:
     """Produce type-tailored Insights from speaker-labeled segments via the LLM.
 
     Returns None for an empty transcript. Never raises: no API key (cloud) or any
-    failure yields a rule-based fallback covering the shared fields.
+    failure yields a rule-based fallback covering the shared fields. A fallback appends
+    a short reason (e.g. "offline", "HTTP 404: model not found") to `fallback_reasons`,
+    so a caller can tell AI notes from rule-based ones without reading the warnings.
     """
     if not segments:
         return None
 
+    def fallback(reason: str) -> Insights:
+        if fallback_reasons is not None:
+            fallback_reasons.append(reason)
+        return _fallback_insights(segments)
+
     env = resolve_llm_env()
     if env.offline and not env.is_local:
         note(warnings, AI_OFFLINE_MESSAGE)
-        return _fallback_insights(segments)
+        return fallback("offline")
     if not env.api_key and not env.is_local:
         warn("no LLM_API_KEY for cloud endpoint, using fallback insights")
         note(warnings, "AI notes need an LLM API key; rule-based notes were used.")
-        return _fallback_insights(segments)
+        return fallback("no LLM API key")
 
     system = language_directive(notes_language) + _PROMPTS.get(recording_type, _CALL_PROMPT)
     user = f"{_context_block(sentiment, emotion)}Transcript:\n\n{transcript_text(segments)}"
@@ -170,8 +178,8 @@ def analyze_insights(
     except LLMTruncatedError as exc:
         warn(f"insights failed: {exc}")
         note(warnings, str(exc))
-        return _fallback_insights(segments)
+        return fallback("the reply was cut off")
     except (LLMError, ValueError, TypeError, AttributeError, KeyError) as exc:
         warn(f"insights failed: {exc}, using fallback insights")
         note(warnings, f"AI notes failed ({exc}); rule-based notes were used.")
-        return _fallback_insights(segments)
+        return fallback(str(exc))

@@ -14,8 +14,10 @@ struct AppActivity: Equatable, Sendable {
     var defaultEngine = TranscriptionEngine.localWhisper.rawValue
     /// The worker's progress for the current run, as reported (not clamped).
     var processingProgress: Double = 0
-    /// Where the final AI notes are made: a cloud provider needs the network.
+    /// Where the final AI notes are made: a cloud provider needs the network and its key.
     var notesProvider: LLMProvider = .openrouter
+    /// Whether an OpenRouter API key is saved (only the cloud provider needs one).
+    var notesKeySaved = true
     /// What the current run is doing when it isn't transcription (`NotesRegeneration.stage`).
     var processingStage: String?
 }
@@ -67,7 +69,8 @@ extension ReprocessPolicy {
 /// Why Regenerate AI notes can't run now. It needs the saved transcript and the notes
 /// model, never the transcription engine: no audio is transcribed or uploaded.
 /// Checked in this order: the session's status, its transcript, a recording, another run,
-/// the network. A run shows as `transcribing`, like Re-process, so every guard sees it busy.
+/// the cloud notes model's key, the network. A run shows as `transcribing`, like
+/// Re-process, so every guard sees it busy.
 enum RegenerateNotesPolicy {
     /// `code` is the API's `error` field; `message` is the sentence the web shows.
     struct Problem: Equatable, Sendable {
@@ -79,6 +82,7 @@ enum RegenerateNotesPolicy {
     static let stopFirstMessage = "Stop the recording before processing a session."
     static let otherRunMessage = "Another session is being processed. Try again when it finishes."
     static let ownRunMessage = "This session is being processed. Try again when it finishes."
+    static let noKeyMessage = "Add an OpenRouter API key in Settings → AI notes to regenerate notes."
 
     static func problem(for session: Session, transcriptSaved: Bool, activity: AppActivity) -> Problem? {
         guard ReprocessPolicy.processableStatuses.contains(session.status) else {
@@ -92,6 +96,10 @@ enum RegenerateNotesPolicy {
             return Problem(code: "busy", message: stopFirstMessage)
         }
         guard activity.state != .transcribing else { return Problem(code: "busy", message: otherRunMessage) }
+        // Without a key the worker would fall back to rule-based notes and keep the old ones.
+        if activity.notesProvider == .openrouter, !activity.notesKeySaved {
+            return Problem(code: "no_api_key", message: noKeyMessage)
+        }
         return NetworkPolicy.notesBlockReason(provider: activity.notesProvider, isOnline: activity.isOnline)
             .map { Problem(code: "offline", message: $0) }
     }

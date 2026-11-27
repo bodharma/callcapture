@@ -36,6 +36,9 @@ extension AppModel {
             if Task.isCancelled {
                 // Cancel terminates the worker, which can still answer with an exit-code error.
                 NotesRegeneration.restore(previous, in: sessionManager)
+            } else if result.status == "completed", result.notesKept == true {
+                // The AI call fell back: the worker left the earlier notes in place.
+                NotesRegeneration.recordKept(result, previous: previous, in: sessionManager)
             } else if result.status == "completed" {
                 NotesRegeneration.recordSuccess(result, sessionID: previous.id, in: sessionManager)
             } else {

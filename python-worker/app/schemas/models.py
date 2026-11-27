@@ -53,6 +53,9 @@ class JobResult(BaseModel, frozen=True):
     llm_tokens: int | None = None
     warnings: list[str] = Field(default_factory=list)
     error_message: str | None = None
+    # `regenerate_notes` only: the AI notes fell back, so the earlier note and analysis
+    # were left as they were (no paths are reported).
+    notes_kept: bool = False
 
 
 class TranscriptSegment(BaseModel, frozen=True):

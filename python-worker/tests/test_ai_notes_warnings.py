@@ -79,3 +79,29 @@ def test_pipeline_completes_and_returns_the_warnings(cloud_env, monkeypatch, tmp
         result = cli._run_pipeline(request)
     assert result.status == "completed"
     assert OFFLINE in result.warnings
+
+
+def test_the_fallback_reason_is_reported_apart_from_the_warning(cloud_env, monkeypatch):
+    def reasons_for(**env):
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+        reasons: list[str] = []
+        insights_mod.analyze_insights(_segments(), recording_type="call_meeting", fallback_reasons=reasons)
+        return reasons
+
+    with patch.object(insights_mod, "LLMClient", _FailingClient):
+        assert reasons_for() == ["HTTP 404: model not found"]
+        assert reasons_for(LLM_API_KEY="") == ["no LLM API key"]
+        assert reasons_for(LLM_OFFLINE="1") == ["offline"]
+
+
+def test_no_fallback_reason_when_the_ai_answers(cloud_env):
+    class _Answering(_FailingClient):
+        def complete_json(self, **kwargs):
+            return {"title": "Sync", "summary": "We synced."}
+
+    reasons: list[str] = []
+    with patch.object(insights_mod, "LLMClient", _Answering):
+        result = insights_mod.analyze_insights(_segments(), recording_type="call_meeting", fallback_reasons=reasons)
+    assert result is not None and result.title == "Sync"
+    assert reasons == []

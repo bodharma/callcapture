@@ -8,6 +8,7 @@ import signal
 import sys
 import wave
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
@@ -259,7 +260,7 @@ def _run_pipeline(request: JobRequest) -> JobResult:
             warnings,
         )
 
-    analysis_path, md_path = _analyze_and_write_notes(request, segments, warnings)
+    notes = _analyze_and_write_notes(request, segments, warnings)
 
     base_dir = os.path.dirname(request.audio_path)
     base_name = os.path.splitext(os.path.basename(request.audio_path))[0]
@@ -275,8 +276,8 @@ def _run_pipeline(request: JobRequest) -> JobResult:
         job_id=request.job_id,
         status="completed",
         raw_transcript_path=raw_path,
-        markdown_path=md_path,
-        analysis_path=analysis_path,
+        markdown_path=notes.markdown_path,
+        analysis_path=notes.analysis_path,
         duration_sec=duration_sec,
         warnings=warnings,
         **costs,
@@ -288,7 +289,9 @@ def _run_regenerate_notes(request: JobRequest) -> JobResult:
 
     No audio is transcribed or uploaded, so only the processing cost is reported, and
     the transcript file is never rewritten: its speaker labels, which the app's speaker
-    names are keyed by, stay as they were.
+    names are keyed by, stay as they were. The run exists to improve the notes, so when
+    the AI notes fall back to rule-based ones the earlier note and analysis are kept
+    (`notes_kept`) and a warning says why.
     """
     warnings: list[str] = []
 
@@ -305,7 +308,7 @@ def _run_regenerate_notes(request: JobRequest) -> JobResult:
     except SavedTranscriptError as exc:
         return _failed(request, str(exc), warnings)
 
-    analysis_path, md_path = _analyze_and_write_notes(request, segments, warnings)
+    notes = _analyze_and_write_notes(request, segments, warnings, keep_notes_on_ai_fallback=True)
 
     report_progress(request.job_id, 1.0, "done")
 
@@ -313,23 +316,46 @@ def _run_regenerate_notes(request: JobRequest) -> JobResult:
         job_id=request.job_id,
         status="completed",
         raw_transcript_path=request.transcript_path,
-        markdown_path=md_path,
-        analysis_path=analysis_path,
+        markdown_path=notes.markdown_path,
+        analysis_path=notes.analysis_path,
         duration_sec=segments[-1].end,
         warnings=warnings,
+        notes_kept=notes.kept,
         **_processing_costs(request),
     )
 
 
+@dataclass(frozen=True)
+class NotesOutcome:
+    """What the shared post-transcription step did."""
+
+    analysis_path: str | None
+    markdown_path: str | None
+    # Why the AI notes fell back to rule-based ones; None when the AI wrote them.
+    ai_fallback: str | None
+
+    @property
+    def kept(self) -> bool:
+        """Nothing was written: the earlier note and analysis stand."""
+        return self.markdown_path is None
+
+
 def _analyze_and_write_notes(
-    request: JobRequest, segments: list[TranscriptSegment], warnings: list[str]
-) -> tuple[str, str]:
+    request: JobRequest,
+    segments: list[TranscriptSegment],
+    warnings: list[str],
+    *,
+    keep_notes_on_ai_fallback: bool = False,
+) -> NotesOutcome:
     """The post-transcription half that `transcribe` and `regenerate_notes` share, so
     their notes can't drift apart: acoustic emotion (when the model is ready), sentiment,
     insights, speaker metrics, `<base>_analysis.json` and `<base>_notes.md`.
 
-    Appends the AI notes fallbacks to `warnings`; returns (analysis path, note path).
+    Appends the run's warnings to `warnings`. With `keep_notes_on_ai_fallback`, rule-based
+    insights write nothing: the warnings then hold only why the earlier notes were kept.
     """
+    run_warnings: list[str] = []
+    fallback_reasons: list[str] = []
     emotion = {}
     arc = []
     if is_emotion_model_ready():
@@ -349,7 +375,7 @@ def _analyze_and_write_notes(
         segments,
         emotion=emotion_summary or None,
         notes_language=request.notes_language,
-        warnings=warnings,
+        warnings=run_warnings,
     )
     if sentiment is not None and arc:
         sentiment = sentiment.model_copy(update={"arc": arc})
@@ -360,8 +386,16 @@ def _analyze_and_write_notes(
         sentiment=sentiment,
         emotion=emotion_summary or None,
         notes_language=request.notes_language,
-        warnings=warnings,
+        warnings=run_warnings,
+        fallback_reasons=fallback_reasons,
     )
+    ai_fallback = fallback_reasons[0] if fallback_reasons else None
+    if ai_fallback is not None and keep_notes_on_ai_fallback:
+        # The run's sentiment and its warnings go with the discarded notes.
+        warnings.append(f"Regenerating AI notes failed ({ai_fallback}); the previous notes were kept.")
+        return NotesOutcome(analysis_path=None, markdown_path=None, ai_fallback=ai_fallback)
+    warnings.extend(run_warnings)
+
     speakers = _build_speakers(segments, emotion)
     analysis_path = _write_analysis(
         request, segments, sentiment, emotion, insights, speakers=speakers
@@ -379,7 +413,7 @@ def _analyze_and_write_notes(
     md_path = os.path.join(base_dir, f"{base_name}_notes.md")
     write_markdown(rendered, md_path)
 
-    return analysis_path, md_path
+    return NotesOutcome(analysis_path=analysis_path, markdown_path=md_path, ai_fallback=ai_fallback)
 
 
 @click.group()

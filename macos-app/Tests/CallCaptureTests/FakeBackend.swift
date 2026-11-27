@@ -24,6 +24,7 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     private var processingProgress: Double = 0
     private var processingStage: String?
     private var notesProvider = LLMProvider.openrouter
+    private var notesKeySaved = true
     private var vaultDirectory: URL?
     private var status = SystemStatus(online: true, recording: false, version: "test")
     private var defaultEngine = "local_whisper"
@@ -60,6 +61,8 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     }
     /// Where the final notes are made (Settings → AI notes); a cloud provider needs the network.
     func setNotesProvider(_ provider: LLMProvider) { lock.withLock { notesProvider = provider } }
+    /// Whether an OpenRouter API key is saved.
+    func setNotesKeySaved(_ saved: Bool) { lock.withLock { notesKeySaved = saved } }
     /// What a released run (re-process or regenerate) writes into the session record.
     func finishReprocess(status: String, error: String?) { lock.withLock { reprocessOutcome = (status, error) } }
 
@@ -199,7 +202,7 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
                 state: recording.state, transition: recording.transition, playbackBlocked: playbackBlocked,
                 isOnline: status.online, recordingSessionID: recordingSessionID, defaultEngine: defaultEngine,
                 processingProgress: processingProgress, notesProvider: notesProvider,
-                processingStage: processingStage)
+                notesKeySaved: notesKeySaved, processingStage: processingStage)
         }
     }
 

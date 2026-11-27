@@ -71,6 +71,18 @@ import Testing
         #expect(Self.problem("transcribed", saved: false, cloud)?.code == "no_transcript")
     }
 
+    @Test func aCloudNotesModelNeedsItsKeyFirst() {
+        let noKey = RegenerateNotesPolicy.Problem(
+            code: "no_api_key", message: "Add an OpenRouter API key in Settings → AI notes to regenerate notes.")
+        #expect(Self.problem("transcribed", AppActivity(notesProvider: .openrouter, notesKeySaved: false)) == noKey)
+        #expect(Self.problem("transcribed", AppActivity(notesProvider: .local, notesKeySaved: false)) == nil)
+        // A missing key outlasts a lost connection, so it is said first.
+        #expect(Self.problem("transcribed", AppActivity(isOnline: false, notesProvider: .openrouter, notesKeySaved: false))
+            == noKey)
+        #expect(Self.problem("transcribed", AppActivity(state: .transcribing, notesKeySaved: false)) == Self.otherRun)
+        #expect(Self.problem("transcribed", saved: false, AppActivity(notesKeySaved: false))?.code == "no_transcript")
+    }
+
     @Test func theFileCheckingOverloadLooksForTheTranscript() throws {
         let path = FileManager.default.temporaryDirectory.appendingPathComponent("cc-regen-\(UUID().uuidString).json").path
         var session = Self.session("transcribed")
@@ -210,21 +222,50 @@ import Testing
         #expect(after.transcriptMarkdownPath == before.transcriptMarkdownPath)
         #expect(after.costProcessing == 0.001)
         #expect(after.warningMessage == """
-            AI notes weren't regenerated; the earlier notes are kept. The saved transcript is missing. \
+            Regenerating AI notes failed; the previous notes were kept. The saved transcript is missing. \
             Use Re-process to transcribe the recording again.
             AI notes failed (cut off); rule-based notes were used.
             """)
     }
 
+    @Test func notesTheWorkerKeptLeavePathsAndCostAloneAndSayWhy() throws {
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (manager, before) = try running()
+        let earlier = NotesRegeneration.failureLine("Worker exited with code 1", advise: true)
+        manager.updateSessionWarning(id: "S1", message: earlier + "\nAI notes failed (cut off); rule-based notes were used.")
+        var kept = result(warnings: ["Regenerating AI notes failed (HTTP 404: model not found); the previous notes were kept."])
+        kept.notesKept = true
+
+        NotesRegeneration.recordKept(kept, previous: before, in: manager)
+
+        let after = try #require(manager.session(id: "S1"))
+        #expect(after.status == "error")
+        #expect(after.errorMessage == "Worker crashed")
+        #expect(after.transcriptMarkdownPath == before.transcriptMarkdownPath)
+        #expect(after.analysisPath == before.analysisPath)
+        #expect(after.costProcessing == 0.001)
+        #expect(after.costTranscription == 1.67)
+        #expect(after.warningMessage == """
+            Regenerating AI notes failed (HTTP 404: model not found); the previous notes were kept.
+            AI notes failed (cut off); rule-based notes were used.
+            """)
+    }
+
+    @Test func theWorkerSaysWhenItKeptTheNotes() throws {
+        let decode = { (json: String) in try JSONDecoder().decode(JobResult.self, from: Data(json.utf8)) }
+        #expect(try decode(#"{"job_id":"S1","status":"completed","warnings":[],"notes_kept":true}"#).notesKept == true)
+        #expect(try decode(#"{"job_id":"S1","status":"completed","warnings":[]}"#).notesKept == nil)
+    }
+
     @Test func anUnexpectedFailureSaysWhatToDoAndReplacesAnEarlierFailureLine() throws {
         defer { try? FileManager.default.removeItem(at: directory) }
-        let earlier = NotesRegeneration.failureWarning("Worker exited with code 1.", advise: true, previous: "Old note.")
+        let earlier = NotesRegeneration.failureLine("Worker exited with code 1.", advise: true) + "\nOld note."
         let (manager, before) = try running(warning: earlier)
 
         NotesRegeneration.recordFailure("Worker exited with code 9", advise: true, previous: before, in: manager)
 
         #expect(manager.session(id: "S1")?.warningMessage == """
-            AI notes weren't regenerated; the earlier notes are kept. Worker exited with code 9. \
+            Regenerating AI notes failed; the previous notes were kept. Worker exited with code 9. \
             Try Regenerate AI notes again.
             Old note.
             """)

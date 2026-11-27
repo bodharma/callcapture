@@ -159,6 +159,7 @@ extension AppModel {
             state: state, transition: recordingTransition, playbackBlocked: playbackBlocked,
             isOnline: connectivity.isOnline, recordingSessionID: sessionManager.currentSession?.id,
             defaultEngine: settingsManager.defaultEngine.rawValue, processingProgress: pythonBridge.progress,
-            notesProvider: settingsManager.llmProvider, processingStage: processingStage)
+            notesProvider: settingsManager.llmProvider, notesKeySaved: !settingsManager.openRouterApiKey.isEmpty,
+            processingStage: processingStage)
     }
 }

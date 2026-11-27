@@ -10,7 +10,10 @@ import pytest
 from click.testing import CliRunner
 
 from app import cli
+from app.analyze import insights as insights_mod
+from app.analyze import sentiment as sentiment_mod
 from app.postprocess import llm_client
+from app.postprocess.llm_client import LLMError, LLMTruncatedError
 from app.schemas.models import Insights, JobRequest
 
 SAVED = [
@@ -106,17 +109,111 @@ def test_only_the_processing_cost_is_reported(tmp_path, no_transcription, no_llm
     assert result.cost_currency == "USD"
 
 
-def test_the_runs_warnings_are_returned(tmp_path, no_transcription, monkeypatch):
+class _FailingClient:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def complete_json(self, **kwargs):
+        raise LLMError("HTTP 404: model not found")
+
+
+class _CutOffClient(_FailingClient):
+    def complete_json(self, **kwargs):
+        raise LLMTruncatedError()
+
+
+@pytest.fixture
+def cloud_env(monkeypatch):
+    monkeypatch.setenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.delenv("LLM_OFFLINE", raising=False)
+
+
+def _earlier_notes(tmp_path):
+    notes = tmp_path / "S1_notes.md"
+    notes.write_text("# Release\n\nGood AI notes from an earlier run.\n", encoding="utf-8")
+    analysis = tmp_path / "S1_analysis.json"
+    analysis.write_text('{"insights": {"title": "Release"}}', encoding="utf-8")
+    return notes, analysis, notes.read_bytes(), analysis.read_bytes()
+
+
+def test_the_runs_warnings_are_returned(tmp_path, no_transcription, cloud_env):
+    audio, transcript = _session(tmp_path)
+    with patch.object(sentiment_mod, "LLMClient", _FailingClient), \
+         patch("app.cli.analyze_insights", return_value=Insights(title="Release", summary="s")):
+        result = cli._run_regenerate_notes(_request(audio, transcript))
+
+    assert result.status == "completed"
+    assert result.notes_kept is False
+    assert result.warnings == ["AI sentiment failed (HTTP 404: model not found); neutral sentiment was used."]
+    assert (tmp_path / "S1_notes.md").exists()
+
+
+@pytest.mark.parametrize("client, reason", [
+    (_FailingClient, "HTTP 404: model not found"),
+    (_CutOffClient, "the reply was cut off"),
+])
+def test_an_ai_failure_keeps_the_previous_notes(tmp_path, no_transcription, cloud_env, client, reason):
+    audio, transcript = _session(tmp_path)
+    notes, analysis, notes_before, analysis_before = _earlier_notes(tmp_path)
+    with patch.object(insights_mod, "LLMClient", client), patch.object(sentiment_mod, "LLMClient", client):
+        result = cli._run_regenerate_notes(_request(audio, transcript))
+
+    assert result.status == "completed"
+    assert result.notes_kept is True
+    assert result.markdown_path is None
+    assert result.analysis_path is None
+    assert result.warnings == [f"Regenerating AI notes failed ({reason}); the previous notes were kept."]
+    assert notes.read_bytes() == notes_before
+    assert analysis.read_bytes() == analysis_before
+
+
+def test_without_a_key_the_previous_notes_are_kept(tmp_path, no_transcription, monkeypatch):
     monkeypatch.setenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
     monkeypatch.setenv("LLM_API_KEY", "")
     monkeypatch.delenv("LLM_OFFLINE", raising=False)
     audio, transcript = _session(tmp_path)
+    notes, analysis, notes_before, analysis_before = _earlier_notes(tmp_path)
 
     result = cli._run_regenerate_notes(_request(audio, transcript))
 
+    assert result.notes_kept is True
+    assert result.warnings == ["Regenerating AI notes failed (no LLM API key); the previous notes were kept."]
+    assert notes.read_bytes() == notes_before
+    assert analysis.read_bytes() == analysis_before
+
+
+def test_transcription_still_writes_rule_based_notes_when_the_ai_fails(tmp_path, cloud_env):
+    audio, transcript = _session(tmp_path)
+    segments = cli._load_saved_transcript(str(transcript))
+    with patch.object(insights_mod, "LLMClient", _FailingClient), \
+         patch.object(sentiment_mod, "LLMClient", _FailingClient), \
+         patch("app.cli.is_emotion_model_ready", return_value=False), \
+         patch("app.cli._transcribe_and_attribute", return_value=segments), \
+         patch("app.cli._count_stems", return_value=1):
+        result = cli._run_pipeline(JobRequest(job_id="S1", command="transcribe", audio_path=str(audio)))
+
     assert result.status == "completed"
-    assert "AI notes need an LLM API key; rule-based notes were used." in result.warnings
-    assert (tmp_path / "S1_notes.md").exists()
+    assert result.notes_kept is False
+    assert result.markdown_path == str(tmp_path / "S1_notes.md")
+    assert "AI notes failed (HTTP 404: model not found); rule-based notes were used." in result.warnings
+    assert (tmp_path / "S1_notes.md").read_text(encoding="utf-8").startswith("# ")
+
+
+def test_the_shared_step_reports_whether_the_ai_wrote_the_notes(tmp_path, cloud_env):
+    audio, transcript = _session(tmp_path)
+    segments = cli._load_saved_transcript(str(transcript))
+    request = _request(audio, transcript)
+    with patch("app.cli.is_emotion_model_ready", return_value=False), \
+         patch.object(sentiment_mod, "LLMClient", _FailingClient):
+        with patch.object(insights_mod, "LLMClient", _FailingClient):
+            fell_back = cli._analyze_and_write_notes(request, segments, [])
+        with patch("app.cli.analyze_insights", return_value=Insights(title="Release", summary="s")):
+            wrote = cli._analyze_and_write_notes(request, segments, [])
+
+    assert fell_back.ai_fallback == "HTTP 404: model not found"
+    assert fell_back.markdown_path == str(tmp_path / "S1_notes.md")  # transcribe keeps writing
+    assert wrote.ai_fallback is None
 
 
 def test_both_commands_share_one_post_transcription_step(tmp_path, no_llm):

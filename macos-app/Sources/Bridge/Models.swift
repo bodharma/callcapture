@@ -176,6 +176,9 @@ struct JobResult: Codable, Sendable {
     let costCurrency: String?
     let warnings: [String]
     let errorMessage: String?
+    /// `regenerate_notes`: the AI notes fell back, so the worker left the earlier note and
+    /// analysis as they were. Absent from other results.
+    var notesKept: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
         case jobId = "job_id"
@@ -189,6 +192,7 @@ struct JobResult: Codable, Sendable {
         case costCurrency = "cost_currency"
         case warnings
         case errorMessage = "error_message"
+        case notesKept = "notes_kept"
     }
 
     /// Creates an error result when the worker process fails.

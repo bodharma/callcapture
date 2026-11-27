@@ -591,6 +591,12 @@ struct SessionsAPITests {
             ])
 
             fixture.backend.setOnline(true)
+            fixture.backend.setNotesKeySaved(false)
+            #expect(try await refusal() == [
+                "error": "no_api_key", "message": "Add an OpenRouter API key in Settings → AI notes to regenerate notes.",
+            ])
+
+            fixture.backend.setNotesKeySaved(true)
             try FileManager.default.removeItem(atPath: try #require(fixture.session.transcriptRawPath))
             #expect(try await refusal()
                 == ["error": "no_transcript", "message": "This session has no saved transcript yet. Transcribe it first."])
