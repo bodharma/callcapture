@@ -1,5 +1,6 @@
+import { MutationCache } from "@tanstack/react-query";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { calls, mockApi, type RouteValue } from "../../test/api";
 import { renderAt } from "../../test/render";
 import { catalogFixture, settingsFixture } from "./testData";
@@ -121,7 +122,8 @@ describe("Settings", () => {
     renderAt("/settings/ai-notes");
     const input = (await screen.findByLabelText("OpenRouter key")) as HTMLInputElement;
     expect(input.type).toBe("password");
-    expect(input.getAttribute("autocomplete")).toBe("off");
+    // Not "off": browsers ignore that on password fields; "new-password" stops autofill of a stored one.
+    expect(input.getAttribute("autocomplete")).toBe("new-password");
     expect(input.value).toBe("");
     expect(screen.getByText("Saved in the Keychain.")).toBeTruthy();
 
@@ -131,6 +133,23 @@ describe("Settings", () => {
     expect(input.value).toBe("");
     expect(bodyOf(fetchFn, "PUT /api/settings/secrets/openrouter")).toEqual({ value: "sk-or-v1-synthetic" });
     expect(document.body.textContent).not.toContain("sk-or-v1-synthetic");
+  });
+
+  it("keeps no copy of a saved key in the app's mutation state", async () => {
+    const build = vi.spyOn(MutationCache.prototype, "build");
+    try {
+      settingsApi({ "PUT /api/settings/secrets/openrouter": { status: 204 } });
+      renderAt("/settings/ai-notes");
+      fireEvent.change(await screen.findByLabelText("OpenRouter key"), { target: { value: "sk-or-v1-synthetic" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save OpenRouter key" }));
+      expect(await screen.findByText("Key saved.")).toBeTruthy();
+      const cache = build.mock.contexts[0] as MutationCache;
+      await waitFor(() =>
+        expect(cache.getAll().map((mutation) => mutation.state.variables)).not.toContain("sk-or-v1-synthetic"),
+      );
+    } finally {
+      build.mockRestore();
+    }
   });
 
   it("clears an old key test result when the key is replaced", async () => {

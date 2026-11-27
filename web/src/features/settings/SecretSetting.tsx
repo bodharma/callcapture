@@ -34,6 +34,8 @@ export function SecretSetting({ label, name, set, hint, children, onChanged }: S
     save.mutate(value, {
       onSuccess: () => {
         setValue("");
+        // Drop the key from the mutation's state (its variables), not only from the field.
+        save.reset();
         setDone("Key saved.");
         onChanged?.();
       },
@@ -48,7 +50,7 @@ export function SecretSetting({ label, name, set, hint, children, onChanged }: S
           id={id}
           className="field field--wide mono"
           type="password"
-          autoComplete="off"
+          autoComplete="new-password"
           spellCheck={false}
           value={value}
           placeholder={set ? "Paste a new key to replace it" : "Paste the key"}

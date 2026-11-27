@@ -53,10 +53,16 @@ export function useResetCosts() {
 
 const secretPath = (key: SecretKey): string => `/api/settings/secrets/${key}`;
 
+/**
+ * The key is the mutation's variables. `gcTime: 0` drops the finished mutation from the
+ * cache as soon as nothing observes it (the field calls `reset()` after a save), so no
+ * copy of the key stays in memory for the default five minutes.
+ */
 export function useSaveSecret(key: SecretKey) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (value: string) => apiSend<void>("PUT", secretPath(key), { value }),
+    gcTime: 0,
     onSuccess: () => client.invalidateQueries({ queryKey: settingsKeys.settings }),
   });
 }
