@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from "react";
+import { ProviderFilter } from "./ProviderFilter";
 import { providersOf, tagsOf, type CostRole, type ModelFilters } from "./modelFilters";
 import type { CatalogModel } from "./types";
 
@@ -13,6 +14,8 @@ const CONTEXTS = [
 
 interface PanelProps {
   models: readonly CatalogModel[];
+  /** The models a provider can be chosen from: independent of the other filters. */
+  providerModels: readonly CatalogModel[];
   filters: ModelFilters;
   costRole: CostRole;
   shown: number;
@@ -32,6 +35,7 @@ function toggled(list: readonly string[], item: string, on: boolean): string[] {
 /** Native controls that narrow the model table, with the count of what is left. */
 export function ModelFilterPanel({
   models,
+  providerModels,
   filters,
   costRole,
   shown,
@@ -45,11 +49,10 @@ export function ModelFilterPanel({
   return (
     <div className="filters">
       <div className="filter-row">
-        <CheckGroup
-          legend="Provider"
-          items={providersOf(models)}
+        <ProviderFilter
+          options={providersOf(providerModels)}
           chosen={filters.providers}
-          onToggle={(item, on) => set({ providers: toggled(filters.providers, item, on) })}
+          onChange={(providers) => set({ providers })}
         />
         {tags.length > 0 && (
           <CheckGroup

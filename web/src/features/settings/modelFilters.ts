@@ -32,8 +32,44 @@ export function modelProvider(id: string): string {
   return slash > 0 ? id.slice(0, slash) : id;
 }
 
-export function providersOf(models: readonly CatalogModel[]): string[] {
-  return [...new Set(models.map((model) => modelProvider(model.id)))].sort();
+export interface ProviderOption {
+  id: string;
+  name: string;
+  count: number;
+}
+
+const PROVIDER_NAMES: Readonly<Record<string, string>> = {
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  google: "Google",
+  "meta-llama": "Meta Llama",
+  mistralai: "Mistral",
+  "x-ai": "xAI",
+  deepseek: "DeepSeek",
+  qwen: "Qwen",
+  cohere: "Cohere",
+  microsoft: "Microsoft",
+  amazon: "Amazon",
+  nvidia: "NVIDIA",
+  perplexity: "Perplexity",
+  ai21: "AI21",
+};
+
+/** A known provider's brand name; otherwise the id with its first letter capitalised. */
+export function providerName(id: string): string {
+  return PROVIDER_NAMES[id] ?? id.charAt(0).toLocaleUpperCase() + id.slice(1);
+}
+
+/** Providers with the most models first, then alphabetical by id. */
+export function providersOf(models: readonly CatalogModel[]): ProviderOption[] {
+  const counts = new Map<string, number>();
+  for (const model of models) {
+    const id = modelProvider(model.id);
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return [...counts]
+    .map(([id, count]) => ({ id, name: providerName(id), count }))
+    .sort((a, b) => b.count - a.count || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 export function tagsOf(models: readonly CatalogModel[]): string[] {

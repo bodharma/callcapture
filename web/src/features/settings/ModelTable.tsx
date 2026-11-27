@@ -49,6 +49,10 @@ export function ModelTable({ catalog, liveModel, finalModel, online, offlineReas
     () => visibleModels(catalog.models, { query, jsonOnly, sort, filters, costRole }),
     [catalog.models, query, jsonOnly, sort, filters, costRole],
   );
+  const providerModels = useMemo(
+    () => (jsonOnly ? catalog.models.filter((model) => model.supportsJSON) : catalog.models),
+    [catalog.models, jsonOnly],
+  );
   const clearFilters = () => {
     setFilters(NO_FILTERS);
     setQuery("");
@@ -110,6 +114,7 @@ export function ModelTable({ catalog, liveModel, finalModel, online, offlineReas
 
       <ModelFilterPanel
         models={catalog.models}
+        providerModels={providerModels}
         filters={filters}
         costRole={costRole}
         shown={rows.length}

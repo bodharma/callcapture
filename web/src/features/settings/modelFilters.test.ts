@@ -4,6 +4,7 @@ import {
   filterModels,
   filtersActive,
   modelProvider,
+  providerName,
   providersOf,
   tagsOf,
   type ModelFilters,
@@ -45,7 +46,18 @@ describe("model filters", () => {
   it("derives the provider from the id prefix and lists them sorted", () => {
     expect(modelProvider("anthropic/claude-sonnet-5.5")).toBe("anthropic");
     expect(modelProvider("no-slash")).toBe("no-slash");
-    expect(providersOf(models)).toEqual(["anthropic", "google", "meta"]);
+    expect(providersOf(models).map((p) => [p.id, p.count])).toEqual([
+      ["anthropic", 2],
+      ["google", 1],
+      ["meta", 1],
+    ]);
+  });
+
+  it("names known providers and capitalises the first letter of the rest", () => {
+    expect(providerName("openai")).toBe("OpenAI");
+    expect(providerName("meta-llama")).toBe("Meta Llama");
+    expect(providerName("x-ai")).toBe("xAI");
+    expect(providerName("moonshotai")).toBe("Moonshotai");
   });
 
   it("lists the tags the app computed, each once, sorted", () => {
