@@ -39,6 +39,12 @@ struct SessionDTO: Encodable {
     /// Why Transcribe / Re-process / Retry can't run now (a recording, another run,
     /// offline with a cloud engine); omitted when it can, or the status has no such button.
     let reprocessBlocked: String?
+    /// Why Regenerate AI notes can't run now (no saved transcript, a recording, another
+    /// run, offline with a cloud notes model); omitted when it can.
+    let regenerateBlocked: String?
+    /// What the run on this session is doing when it isn't transcription
+    /// ("Regenerating notes"); omitted otherwise.
+    let stage: String?
     /// Whether Delete can run now; `deleteBlocked` says why not.
     let canDelete: Bool?
     let deleteBlocked: String?
@@ -47,6 +53,8 @@ struct SessionDTO: Encodable {
     init(_ session: Session, activity: AppActivity? = nil) {
         progress = activity.flatMap { ProcessingProgress.value(for: session, activity: $0) }
         reprocessBlocked = activity.flatMap { ReprocessPolicy.buttonReason(for: session, activity: $0) }
+        regenerateBlocked = activity.flatMap { RegenerateNotesPolicy.problem(for: session, activity: $0)?.message }
+        stage = activity.flatMap { ProcessingProgress.stage(for: session, activity: $0) }
         let deleteProblem = activity.flatMap { DeletePolicy.problem(for: session, activity: $0) }
         deleteBlocked = deleteProblem
         canDelete = activity.map { _ in deleteProblem == nil }
@@ -132,7 +140,7 @@ struct NoteDTO: Encodable {
     private enum CodingKeys: String, CodingKey { case markdown }
 }
 
-/// `202 {"started": true}` from `POST /reprocess`.
+/// `202 {"started": true}` from `POST /reprocess` and `POST /regenerate-notes`.
 struct StartedDTO: Encodable {
     let started = true
 }

@@ -126,9 +126,12 @@ final class AppModel {
     let pythonBridge = PythonBridge()
     let diarizationService = DiarizationService(provider: FluidAudioDiarizer())
 
-    /// The in-flight auto-transcription task, retained so the user can cancel it.
+    /// The in-flight processing task (transcription or notes regeneration), retained so
+    /// the user can cancel it from the menu and quitting stops it.
     @ObservationIgnored
-    private var transcriptionTask: Task<Void, Never>?
+    var transcriptionTask: Task<Void, Never>?
+    /// What the current run is doing when it isn't transcription (`NotesRegeneration.stage`).
+    var processingStage: String?
 
     private static let logger = Logger(
         subsystem: "com.callcapture.app",
@@ -365,21 +368,7 @@ final class AppModel {
             status: "transcribing"
         )
 
-        let llmBaseURL: String
-        let llmKey: String
-        switch settingsManager.llmProvider {
-        case .openrouter:
-            llmBaseURL = "https://openrouter.ai/api/v1"
-            llmKey = settingsManager.openRouterApiKey
-        case .local:
-            llmBaseURL = settingsManager.localLLMBaseURL
-            llmKey = "ollama" // placeholder; local servers ignore it
-        }
-        var llmEnv = [
-            "LLM_BASE_URL": llmBaseURL,
-            "LLM_MODEL": settingsManager.model(for: .final),
-            "LLM_API_KEY": llmKey,
-        ]
+        var llmEnv = notesEnvironment()
         // Offline with OpenRouter notes: the worker skips the LLM and says so in warnings.
         llmEnv.merge(decision.workerEnvironment) { _, new in new }
         // Remote transcription providers read a provider-specific key from env.
@@ -501,6 +490,25 @@ final class AppModel {
                 "Transcription failed for session \(session.id): \(error)"
             )
         }
+    }
+
+    /// The worker's settings for the final AI notes: the configured provider and model.
+    func notesEnvironment() -> [String: String] {
+        let llmBaseURL: String
+        let llmKey: String
+        switch settingsManager.llmProvider {
+        case .openrouter:
+            llmBaseURL = "https://openrouter.ai/api/v1"
+            llmKey = settingsManager.openRouterApiKey
+        case .local:
+            llmBaseURL = settingsManager.localLLMBaseURL
+            llmKey = "ollama" // placeholder; local servers ignore it
+        }
+        return [
+            "LLM_BASE_URL": llmBaseURL,
+            "LLM_MODEL": settingsManager.model(for: .final),
+            "LLM_API_KEY": llmKey,
+        ]
     }
 
     /// Call through `beginRecordingTransition(.starting)` (see `AppModel+Recording`).

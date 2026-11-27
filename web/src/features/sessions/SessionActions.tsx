@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { errorText } from "../../api/client";
 import type { SessionDTO } from "../../api/types";
-import { sessionPath, useReprocess, useSaveToVault } from "./api";
+import { sessionPath, useRegenerateNotes, useReprocess, useSaveToVault } from "./api";
 
 /** The run button follows the status, as in the app: Transcribe, Re-process or Retry. */
 export function reprocessLabel(status: string): string | null {
@@ -11,14 +11,25 @@ export function reprocessLabel(status: string): string | null {
   return null;
 }
 
-/** Re-process, Export and Save to vault, with their results shown inline underneath. */
+/**
+ * Re-process, Regenerate AI notes, Export and Save to vault, with their results shown
+ * inline underneath.
+ */
 export function SessionActions({ session }: { session: SessionDTO }) {
   const reprocess = useReprocess(session.id);
+  const regenerate = useRegenerateNotes(session.id);
   const vault = useSaveToVault(session.id);
   const label = reprocessLabel(session.status);
   const reasonId = useId();
-  // The app's own sentence, shown before any click while the action can't run.
+  const regenerateReasonId = useId();
+  // The app's own sentences, shown before any click while an action can't run.
   const blocked = label ? session.reprocessBlocked : undefined;
+  // Regenerating needs only the saved transcript: nothing is transcribed again.
+  const canRegenerate = session.hasTranscript;
+  const regenerateBlocked = canRegenerate ? session.regenerateBlocked : undefined;
+  // One sentence when both are off for the same reason (a recording, another run).
+  const sharedReason = blocked !== undefined && blocked === regenerateBlocked;
+  const resetResults = () => [reprocess, regenerate, vault].forEach((action) => action.reset());
 
   return (
     <div className="actions">
@@ -30,11 +41,25 @@ export function SessionActions({ session }: { session: SessionDTO }) {
             disabled={reprocess.isPending || blocked !== undefined}
             aria-describedby={blocked ? reasonId : undefined}
             onClick={() => {
-              vault.reset();
+              resetResults();
               reprocess.mutate();
             }}
           >
             {label}
+          </button>
+        )}
+        {canRegenerate && (
+          <button
+            type="button"
+            className="btn"
+            disabled={regenerate.isPending || regenerateBlocked !== undefined}
+            aria-describedby={regenerateBlocked ? (sharedReason ? reasonId : regenerateReasonId) : undefined}
+            onClick={() => {
+              resetResults();
+              regenerate.mutate();
+            }}
+          >
+            Regenerate AI notes
           </button>
         )}
         <ExportMenu session={session} />
@@ -44,7 +69,7 @@ export function SessionActions({ session }: { session: SessionDTO }) {
           disabled={!session.hasNote || vault.isPending}
           title={session.hasNote ? undefined : "There is no note to save yet."}
           onClick={() => {
-            reprocess.reset();
+            resetResults();
             vault.mutate();
           }}
         >
@@ -56,9 +81,19 @@ export function SessionActions({ session }: { session: SessionDTO }) {
           {blocked}
         </p>
       )}
+      {regenerateBlocked && !sharedReason && (
+        <p id={regenerateReasonId} className="actions-reason">
+          {regenerateBlocked}
+        </p>
+      )}
       {reprocess.isError && (
         <p className="notice notice--warn" role="alert">
           {label ?? "Processing"} didn't start. {errorText(reprocess.error)}
+        </p>
+      )}
+      {regenerate.isError && (
+        <p className="notice notice--warn" role="alert">
+          Regenerating AI notes didn't start. {errorText(regenerate.error)}
         </p>
       )}
       {vault.isError && (

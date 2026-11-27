@@ -53,6 +53,8 @@ enum APIResponse {
             return notFound()
         case BackendError.busy(let message):
             return error(.conflict, "busy", message: message)
+        case BackendError.refused(let code, let message):
+            return error(.conflict, code, message: message)
         case BackendError.nothingToSave:
             return error(.conflict, "nothing_to_save", message: "No note yet. Transcribe the session first.")
         case BackendError.unavailable:

@@ -12,7 +12,7 @@ export function Notices({ session, analysisWarnings }: { session: SessionDTO; an
     <>
       {session.status === "transcribing" && (
         <p className="notice notice--live" role="status">
-          Processing this session. This page updates when it's done.
+          {session.stage ?? "Processing this session"}. This page updates when it's done.
         </p>
       )}
       {session.error && session.status !== "transcribing" && (

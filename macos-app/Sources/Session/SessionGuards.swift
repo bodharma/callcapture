@@ -14,6 +14,10 @@ struct AppActivity: Equatable, Sendable {
     var defaultEngine = TranscriptionEngine.localWhisper.rawValue
     /// The worker's progress for the current run, as reported (not clamped).
     var processingProgress: Double = 0
+    /// Where the final AI notes are made: a cloud provider needs the network.
+    var notesProvider: LLMProvider = .openrouter
+    /// What the current run is doing when it isn't transcription (`NotesRegeneration.stage`).
+    var processingStage: String?
 }
 
 /// Why a session can't be deleted right now. Decided from what the app is doing, not from
@@ -60,10 +64,53 @@ extension ReprocessPolicy {
     }
 }
 
-/// The 0…1 progress shown while the app processes a session.
+/// Why Regenerate AI notes can't run now. It needs the saved transcript and the notes
+/// model, never the transcription engine: no audio is transcribed or uploaded.
+/// Checked in this order: the session's status, its transcript, a recording, another run,
+/// the network. A run shows as `transcribing`, like Re-process, so every guard sees it busy.
+enum RegenerateNotesPolicy {
+    /// `code` is the API's `error` field; `message` is the sentence the web shows.
+    struct Problem: Equatable, Sendable {
+        let code: String
+        let message: String
+    }
+
+    static let noTranscriptMessage = "This session has no saved transcript yet. Transcribe it first."
+    static let stopFirstMessage = "Stop the recording before processing a session."
+    static let otherRunMessage = "Another session is being processed. Try again when it finishes."
+    static let ownRunMessage = "This session is being processed. Try again when it finishes."
+
+    static func problem(for session: Session, transcriptSaved: Bool, activity: AppActivity) -> Problem? {
+        guard ReprocessPolicy.processableStatuses.contains(session.status) else {
+            let busy = session.status == "transcribing"
+            return Problem(code: "busy", message: busy ? ownRunMessage
+                : "AI notes can't be regenerated while this session is \(session.status).")
+        }
+        guard transcriptSaved else { return Problem(code: "no_transcript", message: noTranscriptMessage) }
+        // As for Re-process: a run takes over AppModel.state, which the menu needs to stop a capture.
+        guard activity.state != .recording, !activity.playbackBlocked, activity.transition == nil else {
+            return Problem(code: "busy", message: stopFirstMessage)
+        }
+        guard activity.state != .transcribing else { return Problem(code: "busy", message: otherRunMessage) }
+        return NetworkPolicy.notesBlockReason(provider: activity.notesProvider, isOnline: activity.isOnline)
+            .map { Problem(code: "offline", message: $0) }
+    }
+
+    /// Looks for the transcript file the session record points at.
+    static func problem(for session: Session, activity: AppActivity) -> Problem? {
+        problem(for: session, transcriptSaved: SessionFiles.exists(session.transcriptRawPath), activity: activity)
+    }
+}
+
+/// The 0…1 progress shown while the app processes a session, and what that run is doing.
 enum ProcessingProgress {
     static func value(for session: Session, activity: AppActivity) -> Double? {
         guard activity.state == .transcribing, session.status == "transcribing" else { return nil }
         return min(max(activity.processingProgress, 0), 1)
+    }
+
+    /// Nil for transcription (and for any other session than the one being processed).
+    static func stage(for session: Session, activity: AppActivity) -> String? {
+        value(for: session, activity: activity) == nil ? nil : activity.processingStage
     }
 }

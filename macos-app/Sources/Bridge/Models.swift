@@ -16,6 +16,8 @@ struct JobRequest: Codable, Sendable {
     let notesLanguage: String
     let sttRatesPerMin: [String: Double]
     let llmFallbackRatePer1M: Double
+    /// The session's saved `_transcript.json`, for `regenerate_notes` only; omitted when nil.
+    var transcriptPath: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case jobId = "job_id"
@@ -31,6 +33,7 @@ struct JobRequest: Codable, Sendable {
         case notesLanguage = "notes_language"
         case sttRatesPerMin = "stt_rates_per_min"
         case llmFallbackRatePer1M = "llm_fallback_rate_per_1m"
+        case transcriptPath = "transcript_path"
     }
 
     /// Creates a default transcription request for a given audio file.
@@ -108,6 +111,30 @@ struct JobRequest: Codable, Sendable {
             notesLanguage: session.notesLanguage,
             sttRatesPerMin: settings.sttRatesPerMin,
             llmFallbackRatePer1M: settings.llmFallbackRatePer1M
+        )
+    }
+
+    /// Asks the worker to remake the AI notes and analysis from the session's saved
+    /// transcript, with the session's current type and notes language and the configured
+    /// notes profile. Nothing is transcribed: `engine` and `remoteProvider` only describe
+    /// the session (the worker reports no transcription cost for this command).
+    static func regenerateNotes(session: Session, settings: SettingsManager) -> JobRequest {
+        let transcribe = transcribe(session: session, settings: settings)
+        return JobRequest(
+            jobId: session.id,
+            command: "regenerate_notes",
+            audioPath: session.audioPath,
+            engine: transcribe.engine,
+            language: session.language,
+            markdownProfile: settings.markdownProfile.rawValue,
+            whisperModel: settings.whisperModel.rawValue,
+            llmEngine: settings.llmEngine.rawValue,
+            remoteProvider: transcribe.remoteProvider,
+            recordingType: session.recordingType,
+            notesLanguage: session.notesLanguage,
+            sttRatesPerMin: settings.sttRatesPerMin,
+            llmFallbackRatePer1M: settings.llmFallbackRatePer1M,
+            transcriptPath: session.transcriptRawPath
         )
     }
 

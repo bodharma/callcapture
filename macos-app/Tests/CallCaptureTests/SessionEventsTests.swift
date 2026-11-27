@@ -65,6 +65,7 @@ import Testing
     @Test(arguments: [
         ("DELETE", "/api/sessions/S1"),
         ("POST", "/api/sessions/S1/reprocess"),
+        ("POST", "/api/sessions/S1/regenerate-notes"),
         ("POST", "/api/sessions/S1/vault"),
     ])
     func sessionActionsBroadcast(method: String, path: String) async throws {

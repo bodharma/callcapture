@@ -69,6 +69,18 @@ final class AppModelBackend: AppBackend {
         }
     }
 
+    /// Checks (`RegenerateNotesPolicy`) and starts in one main-actor step, like `reprocess`.
+    func regenerateNotes(id: String) async throws {
+        guard let model else { throw BackendError.notFound }
+        try await MainActor.run {
+            guard let session = model.sessionManager.session(id: id) else { throw BackendError.notFound }
+            if let problem = RegenerateNotesPolicy.problem(for: session, activity: model.activity) {
+                throw BackendError.refused(code: problem.code, message: problem.message)
+            }
+            model.startRegeneratingNotes(session)
+        }
+    }
+
     func saveToVault(id: String) async throws -> URL {
         guard let model else { throw BackendError.notFound }
         let session = try await requireSession(id)
@@ -146,6 +158,7 @@ extension AppModel {
         AppActivity(
             state: state, transition: recordingTransition, playbackBlocked: playbackBlocked,
             isOnline: connectivity.isOnline, recordingSessionID: sessionManager.currentSession?.id,
-            defaultEngine: settingsManager.defaultEngine.rawValue, processingProgress: pythonBridge.progress)
+            defaultEngine: settingsManager.defaultEngine.rawValue, processingProgress: pythonBridge.progress,
+            notesProvider: settingsManager.llmProvider, processingStage: processingStage)
     }
 }

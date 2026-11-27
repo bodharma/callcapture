@@ -139,6 +139,15 @@ private func addActionRoutes(to router: Router<BasicRequestContext>, backend: an
             return APIResponse.json(StartedDTO(), status: .accepted)
         }
     }
+    router.post("api/sessions/:id/regenerate-notes") { _, context in
+        // Like re-process: 202 once started, then `sessionChanged`. A refusal is
+        // 409 {"error": code, "message": reason} (`APIResponse.from`).
+        await withSession(context, backend) { session in
+            try await backend.regenerateNotes(id: session.id)
+            await backend.events.publish(.sessionChanged(id: session.id))
+            return APIResponse.json(StartedDTO(), status: .accepted)
+        }
+    }
     router.post("api/sessions/:id/vault") { _, context in
         await withSession(context, backend) { session in
             let saved = try await backend.saveToVault(id: session.id)

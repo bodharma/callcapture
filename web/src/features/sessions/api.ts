@@ -110,6 +110,19 @@ export function useReprocess(id: string) {
   });
 }
 
+/** Remakes the AI notes from the saved transcript; like Re-process, the record shows "transcribing" meanwhile. */
+export function useRegenerateNotes(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiSend<{ started: boolean }>("POST", `${sessionPath(id)}/regenerate-notes`),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: keys.session(id), exact: true }),
+        client.invalidateQueries({ queryKey: keys.sessions }),
+      ]),
+  });
+}
+
 export function useSaveToVault(id: string) {
   const client = useQueryClient();
   return useMutation({

@@ -44,6 +44,13 @@ export interface SessionDTO {
    * session being processed, offline with cloud transcription), in the app's words.
    */
   reprocessBlocked?: string;
+  /**
+   * Why Regenerate AI notes can't run now (no saved transcript, a recording, another
+   * run, offline with a cloud notes model), in the app's words.
+   */
+  regenerateBlocked?: string;
+  /** What the run on this session is doing when it isn't transcription, e.g. "Regenerating notes". */
+  stage?: string;
   /** Whether Delete can run now. Absent (a list answer) counts as allowed; the app still checks. */
   canDelete?: boolean;
   /** Why Delete can't run now, in the app's words. */

@@ -31,6 +31,10 @@ protocol AppBackend: SettingsBackend {
     /// session's `status` / `errorMessage` report progress and the outcome.
     /// Throws `.notFound`, or `.busy(reason)` with the `ReprocessPolicy` reason.
     func reprocess(id: String) async throws
+    /// Starts remaking the AI notes from the saved transcript in the background, the way
+    /// `reprocess` starts (the session shows `transcribing` meanwhile). Throws `.notFound`,
+    /// or `.refused` with the `RegenerateNotesPolicy` code and reason.
+    func regenerateNotes(id: String) async throws
     /// Writes the note (names applied) into the configured vault; returns the new file.
     func saveToVault(id: String) async throws -> URL
     /// The saved live map, or the live one while that session is still recording.
@@ -42,7 +46,8 @@ protocol AppBackend: SettingsBackend {
     /// Opens the session's Markdown note with the default app (main actor); throws `.notFound`.
     func openNote(id: String) async throws
     /// What the app is doing, for the session guards (`DeletePolicy`, `ReprocessPolicy`,
-    /// `ProcessingProgress`): the detail answer says what is off, and why, before a click.
+    /// `RegenerateNotesPolicy`, `ProcessingProgress`): the detail answer says what is off,
+    /// and why, before a click.
     func activity() async -> AppActivity
 
     // MARK: Events, recording and the live view
@@ -108,6 +113,8 @@ enum BackendError: Error, Equatable {
     case notFound
     /// The session is in use (recording or processing); the message says why.
     case busy(String)
+    /// The action can't run now; `code` is the API's `error` field, `message` says why.
+    case refused(code: String, message: String)
     /// There is no note to save or export yet.
     case nothingToSave
     /// The app model is gone (the app is quitting).

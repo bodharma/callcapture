@@ -58,6 +58,13 @@ enum NetworkPolicy {
         isOnline ? nil : "Offline — downloading needs an internet connection. Downloaded models work offline."
     }
 
+    /// Non-nil when the final AI notes would need a network the Mac does not have.
+    static func notesBlockReason(provider: LLMProvider, isOnline: Bool) -> String? {
+        !isOnline && provider == .openrouter
+            ? "Offline — regenerating AI notes needs an internet connection. A local notes model works offline."
+            : nil
+    }
+
     /// Non-nil when transcribing with `engine` needs a network the Mac does not have.
     static func blockReason(engine: String, isOnline: Bool) -> String? {
         !isOnline && engine == TranscriptionEngine.remote.rawValue ? ConnectivityMonitor.offlineReason : nil

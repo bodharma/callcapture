@@ -7,6 +7,7 @@ import os
 import signal
 import sys
 import wave
+from collections.abc import Callable
 from functools import lru_cache
 from typing import Any
 
@@ -176,15 +177,8 @@ def _count_stems(audio_path: str) -> int:
     return max(1, sum(not _is_silent(p) for p in stems))
 
 
-def _compute_costs(request: JobRequest, duration_sec: float | None) -> dict:
-    """USD cost breakdown for this job, plus raw usage for later recompute."""
-    minutes = (duration_sec or 0.0) / 60.0
-    provider = request.remote_provider if request.engine == "remote" else "local_whisper"
-    rates = pricing.merge_rates(request.stt_rates_per_min)
-    cost_t = pricing.transcription_cost(
-        minutes, provider, _count_stems(request.audio_path), rates
-    )
-
+def _processing_costs(request: JobRequest) -> dict:
+    """USD cost of this job's LLM calls (free for a local engine), plus the tokens used."""
     usage = get_usage()
     if request.llm_engine.startswith("local"):
         cost_p = 0.0
@@ -193,14 +187,60 @@ def _compute_costs(request: JobRequest, duration_sec: float | None) -> dict:
         if fallback is None:
             fallback = pricing.DEFAULT_LLM_FALLBACK_RATE_PER_1M
         cost_p = pricing.processing_cost(usage.actual_cost, usage.total_tokens, fallback)
-
     return {
-        "cost_transcription": round(cost_t, 6),
         "cost_processing": round(cost_p, 6),
         "cost_currency": "USD",
-        "audio_minutes": round(minutes, 4),
         "llm_tokens": usage.total_tokens,
     }
+
+
+def _compute_costs(request: JobRequest, duration_sec: float | None) -> dict:
+    """USD cost breakdown for this job, plus raw usage for later recompute."""
+    minutes = (duration_sec or 0.0) / 60.0
+    provider = request.remote_provider if request.engine == "remote" else "local_whisper"
+    rates = pricing.merge_rates(request.stt_rates_per_min)
+    cost_t = pricing.transcription_cost(
+        minutes, provider, _count_stems(request.audio_path), rates
+    )
+    return {
+        "cost_transcription": round(cost_t, 6),
+        "audio_minutes": round(minutes, 4),
+        **_processing_costs(request),
+    }
+
+
+_TRANSCRIBE_AGAIN = "Use Re-process to transcribe the recording again."
+
+
+class SavedTranscriptError(ValueError):
+    """The saved transcript can't be used; the message is a sentence for the user."""
+
+
+def _load_saved_transcript(path: str) -> list[TranscriptSegment]:
+    """Segments as the pipeline saved them: already speaker-attributed, start-ordered."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            raise ValueError("the transcript is not a list of segments")
+        segments = [TranscriptSegment.model_validate(item) for item in data]
+    except FileNotFoundError as exc:
+        raise SavedTranscriptError(
+            f"The saved transcript is missing. {_TRANSCRIBE_AGAIN}"
+        ) from exc
+    except (OSError, ValueError) as exc:  # JSON and validation errors are ValueErrors
+        raise SavedTranscriptError(
+            f"The saved transcript couldn't be read. {_TRANSCRIBE_AGAIN}"
+        ) from exc
+    if not segments:
+        raise SavedTranscriptError(
+            f"The saved transcript is empty, so there is nothing to make notes from. {_TRANSCRIBE_AGAIN}"
+        )
+    return segments
+
+
+def _failed(request: JobRequest, message: str, warnings: list[str]) -> JobResult:
+    return JobResult(job_id=request.job_id, status="failed", error_message=message, warnings=warnings)
 
 
 def _run_pipeline(request: JobRequest) -> JobResult:
@@ -213,13 +253,83 @@ def _run_pipeline(request: JobRequest) -> JobResult:
 
     segments = _transcribe_and_attribute(request)
     if not segments:
-        return JobResult(
-            job_id=request.job_id,
-            status="failed",
-            error_message="No speech was detected in the recording, so no transcript was produced.",
-            warnings=warnings,
+        return _failed(
+            request,
+            "No speech was detected in the recording, so no transcript was produced.",
+            warnings,
         )
 
+    analysis_path, md_path = _analyze_and_write_notes(request, segments, warnings)
+
+    base_dir = os.path.dirname(request.audio_path)
+    base_name = os.path.splitext(os.path.basename(request.audio_path))[0]
+    raw_path = os.path.join(base_dir, f"{base_name}_transcript.json")
+    write_raw_transcript(segments, raw_path)
+
+    duration_sec = segments[-1].end
+
+    report_progress(request.job_id, 1.0, "done")
+
+    costs = _compute_costs(request, duration_sec)
+    return JobResult(
+        job_id=request.job_id,
+        status="completed",
+        raw_transcript_path=raw_path,
+        markdown_path=md_path,
+        analysis_path=analysis_path,
+        duration_sec=duration_sec,
+        warnings=warnings,
+        **costs,
+    )
+
+
+def _run_regenerate_notes(request: JobRequest) -> JobResult:
+    """Rebuild the AI notes and the analysis from the session's saved transcript.
+
+    No audio is transcribed or uploaded, so only the processing cost is reported, and
+    the transcript file is never rewritten: its speaker labels, which the app's speaker
+    names are keyed by, stay as they were.
+    """
+    warnings: list[str] = []
+
+    reset_usage()
+
+    report_progress(request.job_id, 0.0, "loading transcript")
+
+    if not request.transcript_path:
+        return _failed(
+            request, "No saved transcript was given, so there is nothing to make notes from.", warnings
+        )
+    try:
+        segments = _load_saved_transcript(request.transcript_path)
+    except SavedTranscriptError as exc:
+        return _failed(request, str(exc), warnings)
+
+    analysis_path, md_path = _analyze_and_write_notes(request, segments, warnings)
+
+    report_progress(request.job_id, 1.0, "done")
+
+    return JobResult(
+        job_id=request.job_id,
+        status="completed",
+        raw_transcript_path=request.transcript_path,
+        markdown_path=md_path,
+        analysis_path=analysis_path,
+        duration_sec=segments[-1].end,
+        warnings=warnings,
+        **_processing_costs(request),
+    )
+
+
+def _analyze_and_write_notes(
+    request: JobRequest, segments: list[TranscriptSegment], warnings: list[str]
+) -> tuple[str, str]:
+    """The post-transcription half that `transcribe` and `regenerate_notes` share, so
+    their notes can't drift apart: acoustic emotion (when the model is ready), sentiment,
+    insights, speaker metrics, `<base>_analysis.json` and `<base>_notes.md`.
+
+    Appends the AI notes fallbacks to `warnings`; returns (analysis path, note path).
+    """
     emotion = {}
     arc = []
     if is_emotion_model_ready():
@@ -266,29 +376,10 @@ def _run_pipeline(request: JobRequest) -> JobResult:
 
     base_dir = os.path.dirname(request.audio_path)
     base_name = os.path.splitext(os.path.basename(request.audio_path))[0]
-    raw_path = os.path.join(base_dir, f"{base_name}_transcript.json")
     md_path = os.path.join(base_dir, f"{base_name}_notes.md")
-
-    write_raw_transcript(segments, raw_path)
     write_markdown(rendered, md_path)
 
-    duration_sec: float | None = None
-    if segments:
-        duration_sec = segments[-1].end
-
-    report_progress(request.job_id, 1.0, "done")
-
-    costs = _compute_costs(request, duration_sec)
-    return JobResult(
-        job_id=request.job_id,
-        status="completed",
-        raw_transcript_path=raw_path,
-        markdown_path=md_path,
-        analysis_path=analysis_path,
-        duration_sec=duration_sec,
-        warnings=warnings,
-        **costs,
-    )
+    return analysis_path, md_path
 
 
 @click.group()
@@ -306,6 +397,18 @@ def main() -> None:
 @click.pass_context
 def transcribe_cmd(ctx: click.Context) -> None:
     """Read a JobRequest from stdin and run the full pipeline."""
+    _run_job_from_stdin(ctx, _run_pipeline)
+
+
+@cli.command(name="regenerate_notes")
+@click.pass_context
+def regenerate_notes_cmd(ctx: click.Context) -> None:
+    """Read a JobRequest from stdin and rebuild the AI notes from its saved transcript."""
+    _run_job_from_stdin(ctx, _run_regenerate_notes)
+
+
+def _run_job_from_stdin(ctx: click.Context, run: Callable[[JobRequest], JobResult]) -> None:
+    """One JobRequest on stdin, progress on stderr, one JobResult on stdout."""
     raw = click.get_text_stream("stdin").read().strip()
     if not raw:
         sys.stderr.write('{"error": "empty stdin"}\n')
@@ -329,7 +432,7 @@ def transcribe_cmd(ctx: click.Context) -> None:
         return
 
     try:
-        result = _run_pipeline(request)
+        result = run(request)
     except Exception as exc:
         result = JobResult(
             job_id=request.job_id,

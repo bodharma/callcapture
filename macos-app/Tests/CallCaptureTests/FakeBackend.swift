@@ -3,17 +3,18 @@ import Foundation
 @testable import CallCapture
 
 /// In-memory app side for API tests. Only app-level effects are faked (the
-/// session list, delete/reprocess/vault/reveal, system status); transcripts,
+/// session list, delete/reprocess/regenerate/vault/reveal, system status); transcripts,
 /// names, notes, analysis and live maps go through the shared production
 /// defaults over files the test writes into a temp directory. Refusals and
 /// progress come from the production guards (`DeletePolicy`, `ReprocessPolicy`,
-/// `ProcessingProgress`) over the fake's `AppActivity` (`setActivity`).
+/// `RegenerateNotesPolicy`, `ProcessingProgress`) over the fake's `AppActivity` (`setActivity`).
 final class FakeBackend: AppBackend, @unchecked Sendable {
     private let lock = NSLock()
     private var store: [Session] = []
     private var deleted: [String] = []
     private var revealed: [String] = []
     private var reprocessed: [String] = []
+    private var regenerated: [String] = []
     private var reprocessOutcome: (status: String, error: String?) = ("transcribed", nil)
     private var reprocessGate: AsyncStream<Void>.Continuation?
     private var reprocessRun: Task<Void, Never>?
@@ -21,6 +22,8 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     private var playbackBlocked = false
     private var recordingSessionID: String?
     private var processingProgress: Double = 0
+    private var processingStage: String?
+    private var notesProvider = LLMProvider.openrouter
     private var vaultDirectory: URL?
     private var status = SystemStatus(online: true, recording: false, version: "test")
     private var defaultEngine = "local_whisper"
@@ -40,23 +43,28 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
     var deletedIDs: [String] { lock.withLock { deleted } }
     var revealedIDs: [String] { lock.withLock { revealed } }
     var reprocessedIDs: [String] { lock.withLock { reprocessed } }
+    var regeneratedIDs: [String] { lock.withLock { regenerated } }
     var openedNoteIDs: [String] { lock.withLock { opened } }
     /// What the app is doing, for the guards; the state and transition also drive `FakeLive`.
     func setActivity(
         state: AppState, transition: RecordingTransition? = nil, playbackBlocked: Bool = false,
-        recordingSessionID: String? = nil, progress: Double = 0
+        recordingSessionID: String? = nil, progress: Double = 0, stage: String? = nil
     ) {
         live.setRecording(state: state, transition: transition)
         lock.withLock {
             self.playbackBlocked = playbackBlocked
             self.recordingSessionID = recordingSessionID
             processingProgress = progress
+            processingStage = stage
         }
     }
-    /// What a released run writes into the session record.
+    /// Where the final notes are made (Settings → AI notes); a cloud provider needs the network.
+    func setNotesProvider(_ provider: LLMProvider) { lock.withLock { notesProvider = provider } }
+    /// What a released run (re-process or regenerate) writes into the session record.
     func finishReprocess(status: String, error: String?) { lock.withLock { reprocessOutcome = (status, error) } }
 
-    /// Lets the background run finish and waits until it has updated the session.
+    /// Lets the background run (re-process or regenerate) finish and waits until it has
+    /// updated the session.
     func releaseReprocess() async {
         let (gate, run) = lock.withLock { (reprocessGate, reprocessRun) }
         gate?.yield()
@@ -108,15 +116,32 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
         if let problem = ReprocessPolicy.problem(for: session, activity: await activity()) {
             throw BackendError.busy(problem)
         }
-        let (released, gate) = AsyncStream<Void>.makeStream()
         lock.withLock {
             reprocessed.append(id)
-            updateSession(id) { $0.status = "transcribing"; $0.errorMessage = nil }
-            reprocessGate = gate
-            reprocessRun = Task { [weak self] in
-                for await _ in released { break }
-                self?.completeReprocess(id)
-            }
+            startRun(id)
+        }
+    }
+
+    /// Like production: checked by the same policy, then the same background run as `reprocess`.
+    func regenerateNotes(id: String) async throws {
+        let session = try await requireSession(id)
+        if let problem = RegenerateNotesPolicy.problem(for: session, activity: await activity()) {
+            throw BackendError.refused(code: problem.code, message: problem.message)
+        }
+        lock.withLock {
+            regenerated.append(id)
+            startRun(id)
+        }
+    }
+
+    /// Call with the lock held.
+    private func startRun(_ id: String) {
+        let (released, gate) = AsyncStream<Void>.makeStream()
+        updateSession(id) { $0.status = "transcribing"; $0.errorMessage = nil }
+        reprocessGate = gate
+        reprocessRun = Task { [weak self] in
+            for await _ in released { break }
+            self?.completeReprocess(id)
         }
     }
 
@@ -173,7 +198,8 @@ final class FakeBackend: AppBackend, @unchecked Sendable {
             AppActivity(
                 state: recording.state, transition: recording.transition, playbackBlocked: playbackBlocked,
                 isOnline: status.online, recordingSessionID: recordingSessionID, defaultEngine: defaultEngine,
-                processingProgress: processingProgress)
+                processingProgress: processingProgress, notesProvider: notesProvider,
+                processingStage: processingStage)
         }
     }
 

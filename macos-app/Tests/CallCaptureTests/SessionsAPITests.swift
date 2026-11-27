@@ -464,7 +464,7 @@ struct SessionsAPITests {
         "GET /api/sessions/nope/peaks", "GET /api/sessions/nope/markers",
         "PUT /api/sessions/nope/speakers/You", "DELETE /api/sessions/nope",
         "POST /api/sessions/nope/reprocess", "POST /api/sessions/nope/vault",
-        "POST /api/sessions/nope/reveal",
+        "POST /api/sessions/nope/reveal", "POST /api/sessions/nope/regenerate-notes",
     ])
     func unknownIDIsNotFound(route: String) async throws {
         let fixture = try Fixture()
@@ -477,6 +477,7 @@ struct SessionsAPITests {
             expectNotFoundJSON(response)
         }
         #expect(fixture.backend.reprocessedIDs.isEmpty)
+        #expect(fixture.backend.regeneratedIDs.isEmpty)
         #expect(fixture.backend.revealedIDs.isEmpty)
     }
 
@@ -541,6 +542,127 @@ struct SessionsAPITests {
                 == #"{"error":"Another session is being processed. Try again when it finishes."}"#)
         }
         #expect(fixture.backend.reprocessedIDs.isEmpty)
+    }
+
+    @Test("regenerate notes starts in the background: 202 at once, then the detail follows the run",
+          .timeLimit(.minutes(1)))
+    func regenerateNotesRunsInBackground() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        try await fixture.run { client in
+            let started = try await fixture.request(
+                client, "/api/sessions/S1/regenerate-notes", method: .post, headers: [.origin: ownOrigin])
+            #expect(started.status == .accepted)
+            #expect(String(buffer: started.body) == #"{"started":true}"#)
+            #expect(fixture.backend.regeneratedIDs == ["S1"])
+            #expect(fixture.backend.reprocessedIDs.isEmpty)
+
+            let running = try #require(try json(try await fixture.request(client, "/api/sessions/S1")) as? [String: Any])
+            #expect(running["status"] as? String == "transcribing")
+
+            await fixture.backend.releaseReprocess()
+
+            let done = try #require(try json(try await fixture.request(client, "/api/sessions/S1")) as? [String: Any])
+            #expect(done["status"] as? String == "transcribed")
+            #expect(done["hasTranscript"] as? Bool == true)
+        }
+    }
+
+    @Test("a regenerate that cannot start now is 409 with a code and the reason as the message")
+    func regenerateNotesRefused() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        try await fixture.run { client in
+            func refusal() async throws -> [String: String] {
+                let response = try await fixture.request(client, "/api/sessions/S1/regenerate-notes", method: .post)
+                #expect(response.status == .conflict)
+                return try #require(try json(response) as? [String: String])
+            }
+            fixture.backend.setActivity(state: .transcribing)
+            #expect(try await refusal()
+                == ["error": "busy", "message": "Another session is being processed. Try again when it finishes."])
+
+            fixture.backend.setActivity(state: .idle)
+            fixture.backend.setOnline(false)
+            fixture.backend.setNotesProvider(.openrouter)
+            #expect(try await refusal() == [
+                "error": "offline",
+                "message": NetworkPolicy.notesBlockReason(provider: .openrouter, isOnline: false)!,
+            ])
+
+            fixture.backend.setOnline(true)
+            try FileManager.default.removeItem(atPath: try #require(fixture.session.transcriptRawPath))
+            #expect(try await refusal()
+                == ["error": "no_transcript", "message": "This session has no saved transcript yet. Transcribe it first."])
+        }
+        #expect(fixture.backend.regeneratedIDs.isEmpty)
+    }
+
+    @Test("offline with a local notes model, regenerating still starts")
+    func regenerateNotesOfflineWithALocalModel() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.backend.setOnline(false)
+        fixture.backend.setNotesProvider(.local)
+        try await fixture.run { client in
+            let response = try await fixture.request(client, "/api/sessions/S1/regenerate-notes", method: .post)
+            #expect(response.status == .accepted)
+        }
+        #expect(fixture.backend.regeneratedIDs == ["S1"])
+    }
+
+    @Test("a cross-site regenerate is refused before it reaches the app")
+    func regenerateNotesNeedsOwnOrigin() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        try await fixture.run { client in
+            let response = try await fixture.request(
+                client, "/api/sessions/S1/regenerate-notes", method: .post, headers: [.origin: "https://evil.example"])
+            #expect(response.status == .forbidden)
+            let anonymous = try await client.execute(
+                uri: "/api/sessions/S1/regenerate-notes", method: .post, headers: [.origin: ownOrigin])
+            #expect(anonymous.status == .unauthorized)
+        }
+        #expect(fixture.backend.regeneratedIDs.isEmpty)
+    }
+
+    @Test("the detail says why Regenerate AI notes can't run; the list doesn't")
+    func regenerateBlockedInTheDetail() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        try await fixture.run { client in
+            let idle = try #require(try json(try await fixture.request(client, "/api/sessions/S1")) as? [String: Any])
+            #expect(idle["regenerateBlocked"] == nil)
+            #expect(idle["stage"] == nil)
+
+            // Another session's notes are being regenerated.
+            fixture.backend.setActivity(state: .transcribing, stage: NotesRegeneration.stage)
+            let busy = try #require(try json(try await fixture.request(client, "/api/sessions/S1")) as? [String: Any])
+            #expect(busy["regenerateBlocked"] as? String
+                == "Another session is being processed. Try again when it finishes.")
+            let list = try #require(try json(try await fixture.request(client, "/api/sessions")) as? [[String: Any]])
+            #expect(list[0]["regenerateBlocked"] == nil)
+            // Another run's stage belongs to that session, not this one.
+            #expect(busy["stage"] == nil)
+        }
+    }
+
+    @Test("while this session's notes are regenerated, the detail names the stage")
+    func regenerateStageInTheDetail() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        try await fixture.run { client in
+            _ = try await fixture.request(client, "/api/sessions/S1/regenerate-notes", method: .post)
+            fixture.backend.setActivity(state: .transcribing, progress: 0.5, stage: NotesRegeneration.stage)
+            let running = try #require(try json(try await fixture.request(client, "/api/sessions/S1")) as? [String: Any])
+            #expect(running["status"] as? String == "transcribing")
+            #expect(running["stage"] as? String == "Regenerating notes")
+            #expect(running["progress"] as? Double == 0.5)
+            #expect(running["regenerateBlocked"] as? String
+                == "This session is being processed. Try again when it finishes.")
+            fixture.backend.setActivity(state: .idle)
+            await fixture.backend.releaseReprocess()
+        }
     }
 
     @Test("a garbled speakers file reads as no names (200), and a rename rewrites it, like the detail view")

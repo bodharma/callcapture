@@ -97,7 +97,7 @@ function Editable({ session, field, label, choices }: EditableProps) {
   );
 }
 
-/** A thin bar under the field row while the session transcribes; it follows the app's progress. */
+/** A thin bar under the field row while the session is processed; it follows the app's progress. */
 export function TranscribeProgress({ session }: { session: SessionDTO }) {
   if (session.status !== "transcribing") return null;
   const value = session.progress;
@@ -106,7 +106,7 @@ export function TranscribeProgress({ session }: { session: SessionDTO }) {
     <div
       className="progress"
       role="progressbar"
-      aria-label="Transcription progress"
+      aria-label={session.stage ?? "Transcription progress"}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={percent}

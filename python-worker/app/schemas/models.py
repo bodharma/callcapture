@@ -12,7 +12,7 @@ class JobRequest(BaseModel, frozen=True):
     """Incoming job request from the Swift host process."""
 
     job_id: str = Field(description="UUID string identifying this job")
-    command: Literal["transcribe", "postprocess", "export", "prepare_emotion"]
+    command: Literal["transcribe", "regenerate_notes", "postprocess", "export", "prepare_emotion"]
     recording_type: Literal["call_meeting", "voice_memo", "lecture"] = "call_meeting"
     audio_path: str
     engine: Literal["local_whisper", "remote"] = "local_whisper"
@@ -24,6 +24,8 @@ class JobRequest(BaseModel, frozen=True):
     remote_provider: str = "groq"
     stt_rates_per_min: dict[str, float] = Field(default_factory=dict)
     llm_fallback_rate_per_1m: float | None = None
+    # The session's saved `<base>_transcript.json`; read by `regenerate_notes` only.
+    transcript_path: str | None = None
 
 
 class ProgressUpdate(BaseModel, frozen=True):

@@ -13,7 +13,7 @@ import os
 /// | `partial` | `{source, text}` | partial live speech (≤ 4/s per channel) |
 /// | `spend` | `LiveNotesUsage` | live-notes usage change |
 /// | `connectivity` | `{online}` | `ConnectivityMonitor` |
-/// | `sessionChanged` | `{id}` | any session record change; API rename, vault, delete, re-process |
+/// | `sessionChanged` | `{id}` | any session record change; API rename, vault, delete, re-process, regenerate notes |
 /// | `catalog` | `{}` | catalog refresh started, finished or failed |
 /// | `settings` | `{}` | settings, secrets or model downloads changed |
 /// | `progress` | `{sessionID, value}` | transcription progress, 0…1 (≤ 4/s) |
