@@ -99,6 +99,28 @@ final class WebHostDelegate: NSObject, WKNavigationDelegate, WKDownloadDelegate 
     }
 }
 
+/// What a host loads when its window closes: a blank page (allowed by `NavigationDecision`)
+/// replaces the UI, so its audio, events stream and timers stop with the window instead of
+/// running hidden. Showing the window again loads a fresh login URL.
+enum WebHostTeardown {
+    static let blankPage = URL(string: "about:blank")!
+    static var request: URLRequest { URLRequest(url: blankPage) }
+}
+
+/// Runs `onClose` when its window closes. `NSWindow.delegate` is weak: the controller keeps it.
+@MainActor
+final class WindowCloseObserver: NSObject, NSWindowDelegate {
+    private let onClose: @MainActor () -> Void
+
+    init(onClose: @escaping @MainActor () -> Void) {
+        self.onClose = onClose
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        onClose()
+    }
+}
+
 /// Creates the configured web view both hosts embed.
 @MainActor
 private func makeWebView(delegate: WebHostDelegate) -> WKWebView {
@@ -116,6 +138,7 @@ final class WebWindowController {
     private let delegate: WebHostDelegate
     private var window: NSWindow?
     private var webView: WKWebView?
+    private var closeObserver: WindowCloseObserver?
 
     init(loginURL: @escaping LoginURLProvider, ownPort: @escaping @MainActor () -> Int?) {
         self.loginURL = loginURL
@@ -143,6 +166,9 @@ final class WebWindowController {
         window.contentView = webView
         window.isReleasedWhenClosed = false
         window.center()
+        let observer = WindowCloseObserver { [weak webView] in webView?.load(WebHostTeardown.request) }
+        window.delegate = observer
+        self.closeObserver = observer
         self.webView = webView
         self.window = window
         return window
@@ -156,6 +182,7 @@ final class LivePanelController {
     private let delegate: WebHostDelegate
     private var panel: NSPanel?
     private var webView: WKWebView?
+    private var closeObserver: WindowCloseObserver?
 
     init(loginURL: @escaping LoginURLProvider, ownPort: @escaping @MainActor () -> Int?) {
         self.loginURL = loginURL
@@ -189,6 +216,9 @@ final class LivePanelController {
         panel.isReleasedWhenClosed = false
         panel.contentView = webView
         panel.center()
+        let observer = WindowCloseObserver { [weak webView] in webView?.load(WebHostTeardown.request) }
+        panel.delegate = observer
+        self.closeObserver = observer
         self.webView = webView
         self.panel = panel
         return panel
