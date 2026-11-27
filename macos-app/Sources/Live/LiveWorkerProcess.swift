@@ -151,15 +151,29 @@ final class LiveWorkerProcess: @unchecked Sendable {
     }
 
     private func waitUntil(timeout: Double, condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        try await Self.wait(
+            timeout: timeout, condition: condition, state: { lock.withLock { (failure, cancelled) } },
+            isRunning: { process.isRunning }, sleep: { try await Task.sleep(for: .milliseconds(25)) })
+    }
+
+    /// The wait loop behind `waitUntil`, with its inputs injected so tests can order them.
+    static func wait(
+        timeout: Double, condition: () -> Bool, state: () -> (failure: String?, cancelled: Bool),
+        isRunning: () -> Bool, sleep: () async throws -> Void, now: () -> Date = Date.init
+    ) async throws {
+        let deadline = now().addingTimeInterval(timeout)
         while !condition() {
             try Task.checkCancellation()
-            let state = lock.withLock { (failure, cancelled) }
-            if let message = state.0 { throw LiveWorkerError.unavailable(message) }
-            if state.1 { throw CancellationError() }
-            if !process.isRunning { throw LiveWorkerError.unavailable("Local speech worker exited before completing accepted audio.") }
-            if Date() >= deadline { throw LiveWorkerError.timeout }
-            try await Task.sleep(for: .milliseconds(25))
+            let current = state()
+            if let message = current.failure { throw LiveWorkerError.unavailable(message) }
+            if current.cancelled { throw CancellationError() }
+            if !isRunning() {
+                // The worker may have exited (meeting the condition) after the check above.
+                if condition() { return }
+                throw LiveWorkerError.unavailable("Local speech worker exited before completing accepted audio.")
+            }
+            if now() >= deadline { throw LiveWorkerError.timeout }
+            try await sleep()
         }
     }
 
